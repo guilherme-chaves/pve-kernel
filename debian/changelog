@@ -1,3 +1,9 @@
+proxmox-kernel-7.0 (7.0.0-1~rc7+1) trixie; urgency=medium
+
+  * update submodule and patches to Ubuntu-7.0.0-13.13 based on 7.0~rc7.
+
+ -- Proxmox Support Team <support@proxmox.com>  Wed, 08 Apr 2026 22:14:03 +0200
+
 proxmox-kernel-7.0 (7.0.0-1~rc6+1) trixie; urgency=medium
 
   * update submodule and patches to current master-next based on 7.0~rc6.
