@@ -1,3 +1,15 @@
+proxmox-kernel-7.0 (7.0.0-3) trixie; urgency=medium
+
+  * update ZFS to include some more recent 7.0 compatibility fixes like for
+    NFS exports on top of ZFS.
+
+  * backport "mpt3sas: Limit NVMe request size to 2 MiB" to avoid NULL pointer
+    dereference regression.
+
+  * backport current v3 of the MBEC/GMET support series.
+
+ -- Proxmox Support Team <support@proxmox.com>  Wed, 22 Apr 2026 00:56:59 +0200
+
 proxmox-kernel-7.0 (7.0.0-2) trixie; urgency=medium
 
   * update submodule and patches to Ubuntu-7.0.0-14.14 based on 7.0.0.
