@@ -69,3 +69,23 @@ diff -uarp a/net/core/net_namespace.c b/net/core/net_namespace.c
 -- 
 2.40.2
 
+diff -uarp a/ubuntu/igh-ecat/master/Makefile b/ubuntu/igh-ecat/master/Makefile
+--- a/ubuntu/igh-ecat/master/Makefile
++++ b/ubuntu/igh-ecat/master/Makefile 
+@@ -1,5 +1,5 @@
+-ccflags-y := -I$(src)/../ \
+-	-Wmaybe-uninitialized
++ccflags-y := -I$(src)/../ \
++	-Wuninitialized
+ 
+ obj-$(CONFIG_IGH_ECAT) += ec_master.o
+   
+diff -uarp a/ubuntu/igh-ecat/master/Kbuild.in b/ubuntu/igh-ecat/master/Kbuild.in
+--- a/ubuntu/igh-ecat/master/Kbuild.in
++++ b/ubuntu/igh-ecat/master/Kbuild.in
+@@ -107,6 +107,6 @@ REV := $(shell if test -s $(src)/../revision; then \
+ 
+ CFLAGS_module.o := -DREV=$(REV)
+ 
+-KBUILD_CFLAGS += -Wmaybe-uninitialized
++KBUILD_CFLAGS += -Wuninitialized
