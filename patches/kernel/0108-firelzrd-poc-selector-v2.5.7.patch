@@ -75,6 +75,11 @@ index 45c0022b91..93edf3a1d6 100644
 +#endif /* CONFIG_SCHED_POC_SELECTOR */
  #ifdef CONFIG_SCHED_CACHE
  	unsigned long   util_avg;
+ 	unsigned long   capacity;
+ #endif
+ };
+ 
+ struct sched_domain {
 diff --git a/init/Kconfig b/init/Kconfig
 index b55deae925..7d5332dbc8 100644
 --- a/init/Kconfig
