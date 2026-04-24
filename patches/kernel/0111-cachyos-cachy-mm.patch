@@ -1,0 +1,117 @@
+diff --git a/include/linux/pagemap.h b/include/linux/pagemap.h
+index ec442af3f88613..343f5b8d189a5e 100644
+--- a/include/linux/pagemap.h
++++ b/include/linux/pagemap.h
+@@ -1376,7 +1376,7 @@ struct readahead_control {
+ 		._index = i,						\
+ 	}
+ 
+-#define VM_READAHEAD_PAGES	(SZ_128K / PAGE_SIZE)
++#define VM_READAHEAD_PAGES	(SZ_256K / PAGE_SIZE)
+ 
+ void page_cache_ra_unbounded(struct readahead_control *,
+ 		unsigned long nr_to_read, unsigned long lookahead_count);
+diff --git a/mm/swap.c b/mm/swap.c
+index bb19ccbece464d..cf40a0d4150902 100644
+--- a/mm/swap.c
++++ b/mm/swap.c
+@@ -1101,17 +1101,8 @@ static const struct ctl_table swap_sysctl_table[] = {
+  */
+ void __init swap_setup(void)
+ {
+-	unsigned long megs = PAGES_TO_MB(totalram_pages());
+-
+-	/* Use a smaller cluster for small-memory machines */
+-	if (megs < 16)
+-		page_cluster = 2;
+-	else
+-		page_cluster = 3;
+-	/*
+-	 * Right now other parts of the system means that we
+-	 * _really_ don't want to cluster much more
+-	 */
++	/* Only swap-in pages requested, avoid readahead */
++	page_cluster = 0;
+ 
+ 	register_sysctl_init("vm", swap_sysctl_table);
+ }
+diff --git a/mm/vmscan.c b/mm/vmscan.c
+index 0fc9373e825115..1cfbd5dc6731df 100644
+--- a/mm/vmscan.c
++++ b/mm/vmscan.c
+@@ -198,7 +198,11 @@ struct scan_control {
+ /*
+  * From 0 .. MAX_SWAPPINESS.  Higher means more swappy.
+  */
++#ifdef CONFIG_CACHY
++int vm_swappiness = 100;
++#else
+ int vm_swappiness = 60;
++#endif
+ 
+ #ifdef CONFIG_MEMCG
+ 
+diff --git a/mm/huge_memory.c b/mm/huge_memory.c
+index b298cba853ab95..38b06401d951f3 100644
+--- a/mm/huge_memory.c
++++ b/mm/huge_memory.c
+@@ -63,7 +63,11 @@ unsigned long transparent_hugepage_flags __read_mostly =
+ #ifdef CONFIG_TRANSPARENT_HUGEPAGE_MADVISE
+ 	(1<<TRANSPARENT_HUGEPAGE_REQ_MADV_FLAG)|
+ #endif
++#ifdef CONFIG_CACHY
++	(1<<TRANSPARENT_HUGEPAGE_DEFRAG_KSWAPD_OR_MADV_FLAG)|
++#else
+ 	(1<<TRANSPARENT_HUGEPAGE_DEFRAG_REQ_MADV_FLAG)|
++#endif
+ 	(1<<TRANSPARENT_HUGEPAGE_DEFRAG_KHUGEPAGED_FLAG)|
+ 	(1<<TRANSPARENT_HUGEPAGE_USE_ZERO_PAGE_FLAG);
+ 
+diff --git a/mm/page_alloc.c b/mm/page_alloc.c
+index 2d4b6f1a554ed2..b04a55969bd520 100644
+--- a/mm/page_alloc.c
++++ b/mm/page_alloc.c
+@@ -301,7 +301,11 @@ const char * const migratetype_names[MIGRATE_TYPES] = {
+ 
+ int min_free_kbytes = 1024;
+ int user_min_free_kbytes = -1;
++#ifdef CONFIG_CACHY
++static int watermark_boost_factor __read_mostly;
++#else
+ static int watermark_boost_factor __read_mostly = 15000;
++#endif
+ static int watermark_scale_factor = 10;
+ int defrag_mode;
+ 
+diff --git a/mm/compaction.c b/mm/compaction.c
+index 1e8f8eca318c68..32326c48162b93 100644
+--- a/mm/compaction.c
++++ b/mm/compaction.c
+@@ -1887,7 +1887,11 @@ static int sysctl_compact_unevictable_allowed __read_mostly = CONFIG_COMPACT_UNE
+  * aggressively the kernel should compact memory in the
+  * background. It takes values in the range [0, 100].
+  */
++#ifdef CONFIG_CACHY
++static unsigned int __read_mostly sysctl_compaction_proactiveness;
++#else
+ static unsigned int __read_mostly sysctl_compaction_proactiveness = 20;
++#endif
+ static int sysctl_extfrag_threshold = 500;
+ static int __read_mostly sysctl_compact_memory;
+ 
+diff --git a/mm/vmscan.c b/mm/vmscan.c
+index 1cfbd5dc6731df..b6ada507e05052 100644
+--- a/mm/vmscan.c
++++ b/mm/vmscan.c
+@@ -4153,7 +4153,11 @@ static bool lruvec_is_reclaimable(struct lruvec *lruvec, struct scan_control *sc
+ }
+ 
+ /* to protect the working set of the last N jiffies */
++#ifdef CONFIG_CACHY
++static unsigned long lru_gen_min_ttl __read_mostly = 100;
++#else
+ static unsigned long lru_gen_min_ttl __read_mostly;
++#endif
+ 
+ static void lru_gen_age_node(struct pglist_data *pgdat, struct scan_control *sc)
+ {

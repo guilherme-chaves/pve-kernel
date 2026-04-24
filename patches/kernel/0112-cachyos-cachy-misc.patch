@@ -1,0 +1,158 @@
+diff --git a/kernel/fork.c b/kernel/fork.c
+index bc2bf58b93b652..5dd8301dc7ca93 100644
+--- a/kernel/fork.c
++++ b/kernel/fork.c
+@@ -124,6 +124,12 @@
+ 
+ #include <kunit/visibility.h>
+ 
++#ifdef CONFIG_USER_NS
++static int unprivileged_userns_clone = 1;
++#else
++#define unprivileged_userns_clone 1
++#endif
++
+ /*
+  * Minimum number of threads to boot the kernel
+  */
+@@ -2028,6 +2034,11 @@ __latent_entropy struct task_struct *copy_process(
+ 			return ERR_PTR(-EINVAL);
+ 	}
+ 
++	if ((clone_flags & CLONE_NEWUSER) && !unprivileged_userns_clone) {
++		if (!capable(CAP_SYS_ADMIN))
++			return ERR_PTR(-EPERM);
++	}
++
+ 	/*
+ 	 * Force any signals received before this point to be delivered
+ 	 * before the fork happens.  Collect up signals sent to multiple
+@@ -3069,6 +3080,10 @@ static int check_unshare_flags(unsigned long unshare_flags)
+ 		if (!current_is_single_threaded())
+ 			return -EINVAL;
+ 	}
++	if ((unshare_flags & CLONE_NEWUSER) && !unprivileged_userns_clone) {
++		if (!capable(CAP_SYS_ADMIN))
++			return -EPERM;
++	}
+ 
+ 	return 0;
+ }
+@@ -3299,6 +3314,15 @@ static const struct ctl_table fork_sysctl_table[] = {
+ 		.mode		= 0644,
+ 		.proc_handler	= sysctl_max_threads,
+ 	},
++#ifdef CONFIG_USER_NS
++	{
++		.procname	= "unprivileged_userns_clone",
++		.data		= &unprivileged_userns_clone,
++		.maxlen		= sizeof(int),
++		.mode		= 0644,
++		.proc_handler	= proc_dointvec,
++	},
++#endif
+ };
+ 
+ static int __init init_fork_sysctl(void)
+
+diff --git a/init/init_task.c b/init/init_task.c
+index 5c838757fc10eb..e6f73fe2a40697 100644
+--- a/init/init_task.c
++++ b/init/init_task.c
+@@ -169,7 +169,11 @@ struct task_struct init_task __aligned(L1_CACHE_BYTES) = {
+ 	.journal_info	= NULL,
+ 	INIT_CPU_TIMERS(init_task)
+ 	.pi_lock	= __RAW_SPIN_LOCK_UNLOCKED(init_task.pi_lock),
++#ifdef CONFIG_CACHY
++	.timer_slack_ns = 35000, /* 35 usec default slack */
++#else
+ 	.timer_slack_ns = 50000, /* 50 usec default slack */
++#endif /* CONFIG_CACHY */
+ 	.thread_pid	= &init_struct_pid,
+ 	.thread_node	= LIST_HEAD_INIT(init_signals.thread_head),
+ #ifdef CONFIG_AUDIT
+diff --git a/arch/x86/kernel/cpu/bus_lock.c b/arch/x86/kernel/cpu/bus_lock.c
+index fb166662bc0d6a..e8205854f79a0f 100644
+--- a/arch/x86/kernel/cpu/bus_lock.c
++++ b/arch/x86/kernel/cpu/bus_lock.c
+@@ -47,7 +47,11 @@ static const struct {
+ 
+ static struct ratelimit_state bld_ratelimit;
+ 
++#ifdef CONFIG_CACHY
++static unsigned int sysctl_sld_mitigate = 0;
++#else
+ static unsigned int sysctl_sld_mitigate = 1;
++#endif /* CONFIG_CACHY */
+ static DEFINE_SEMAPHORE(buslock_sem, 1);
+ 
+ #ifdef CONFIG_PROC_SYSCTL
+diff --git a/Documentation/admin-guide/kernel-parameters.txt b/Documentation/admin-guide/kernel-parameters.txt
+index df2b2bb9fa5d81..6e9ca88aa498d6 100644
+--- a/Documentation/admin-guide/kernel-parameters.txt
++++ b/Documentation/admin-guide/kernel-parameters.txt
+@@ -2533,6 +2533,9 @@ Kernel parameters
+ 			disable
+ 			  Do not enable intel_pstate as the default
+ 			  scaling driver for the supported processors
++			enable
++			  Enable intel_pstate in-case "disable" was passed
++			  previously in the kernel boot parameters
+                         active
+                           Use intel_pstate driver to bypass the scaling
+                           governors layer of cpufreq and provides it own
+diff --git a/drivers/cpufreq/intel_pstate.c b/drivers/cpufreq/intel_pstate.c
+index 11c58af4190064..6eb8ec3f278d87 100644
+--- a/drivers/cpufreq/intel_pstate.c
++++ b/drivers/cpufreq/intel_pstate.c
+@@ -3916,6 +3916,8 @@ static int __init intel_pstate_setup(char *str)
+ 
+ 	if (!strcmp(str, "disable"))
+ 		no_load = 1;
++	else if (!strcmp(str, "enable"))
++		no_load = 0;
+ 	else if (!strcmp(str, "active"))
+ 		default_driver = &intel_pstate;
+ 	else if (!strcmp(str, "passive"))
+diff --git a/drivers/acpi/processor_idle.c b/drivers/acpi/processor_idle.c
+index f6c72e3a2be1b5..c2afe55be63133 100644
+--- a/drivers/acpi/processor_idle.c
++++ b/drivers/acpi/processor_idle.c
+@@ -1409,6 +1409,17 @@ void acpi_processor_power_init(struct acpi_processor *pr)
+ 	if (disabled_by_idle_boot_param())
+ 		return;
+ 
++	/*
++	 * The bus master check on AMD is observed to be very costly and results
++	 * in not only increased power consumption, but also lots of CPU cycles
++	 * burned. Disable the actual bus master check while keeping
++	 * pr->flags.bm_check enabled so there's no cache flush upon C3 entry.
++	 */
++	if (!bm_check_disable && boot_cpu_data.x86_vendor == X86_VENDOR_AMD) {
++		bm_check_disable = true;
++		pr_info("Enabled processor.bm_check_disable for AMD cpuidle\n");
++	}
++
+ 	acpi_processor_cstate_first_run_checks();
+ 
+ 	if (!acpi_processor_get_power_info(pr))
+diff --git a/drivers/acpi/processor_idle.c b/drivers/acpi/processor_idle.c
+index c2afe55be63133..74f91ed3db1625 100644
+--- a/drivers/acpi/processor_idle.c
++++ b/drivers/acpi/processor_idle.c
+@@ -1409,6 +1409,7 @@ void acpi_processor_power_init(struct acpi_processor *pr)
+ 	if (disabled_by_idle_boot_param())
+ 		return;
+ 
++#ifdef CONFIG_X86
+ 	/*
+ 	 * The bus master check on AMD is observed to be very costly and results
+ 	 * in not only increased power consumption, but also lots of CPU cycles
+@@ -1419,6 +1420,7 @@ void acpi_processor_power_init(struct acpi_processor *pr)
+ 		bm_check_disable = true;
+ 		pr_info("Enabled processor.bm_check_disable for AMD cpuidle\n");
+ 	}
++#endif
+ 
+ 	acpi_processor_cstate_first_run_checks();
+ 

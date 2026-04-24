@@ -1,0 +1,297 @@
+diff --git a/kernel/sched/fair.c b/kernel/sched/fair.c
+index bf948db905ed1b..f3a42196b59dea 100644
+--- a/kernel/sched/fair.c
++++ b/kernel/sched/fair.c
+@@ -76,10 +76,19 @@ unsigned int sysctl_sched_tunable_scaling = SCHED_TUNABLESCALING_LOG;
+  *
+  * (default: 0.70 msec * (1 + ilog(ncpus)), units: nanoseconds)
+  */
++#ifdef CONFIG_CACHY
++unsigned int sysctl_sched_base_slice			= 400000ULL;
++static unsigned int normalized_sysctl_sched_base_slice	= 400000ULL;
++#else
+ unsigned int sysctl_sched_base_slice			= 700000ULL;
+ static unsigned int normalized_sysctl_sched_base_slice	= 700000ULL;
++#endif /* CONFIG_CACHY */
+ 
++#ifdef CONFIG_CACHY
++__read_mostly unsigned int sysctl_sched_migration_cost	= 400000UL;
++#else
+ __read_mostly unsigned int sysctl_sched_migration_cost	= 500000UL;
++#endif
+ 
+ static int __init setup_sched_thermal_decay_shift(char *str)
+ {
+diff --git a/kernel/sched/sched.h b/kernel/sched/sched.h
+index 43bbf0693cca40..6d77f4cbd5b2d1 100644
+--- a/kernel/sched/sched.h
++++ b/kernel/sched/sched.h
+@@ -3001,7 +3001,7 @@ extern void deactivate_task(struct rq *rq, struct task_struct *p, int flags);
+ 
+ extern void wakeup_preempt(struct rq *rq, struct task_struct *p, int flags);
+ 
+-#ifdef CONFIG_PREEMPT_RT
++#if defined(CONFIG_PREEMPT_RT) || defined(CONFIG_CACHY)
+ # define SCHED_NR_MIGRATE_BREAK 8
+ #else
+ # define SCHED_NR_MIGRATE_BREAK 32
+diff --git a/kernel/sched/fair.c b/kernel/sched/fair.c
+index f3a42196b59dea..5855e172ac0b3e 100644
+--- a/kernel/sched/fair.c
++++ b/kernel/sched/fair.c
+@@ -1149,7 +1149,7 @@ static bool update_deadline(struct cfs_rq *cfs_rq, struct sched_entity *se)
+ 
+ #include "pelt.h"
+ 
+-static int select_idle_sibling(struct task_struct *p, int prev_cpu, int cpu);
++static int select_idle_sibling(struct task_struct *p, int prev_cpu, int cpu, int sync);
+ static unsigned long task_h_load(struct task_struct *p);
+ static unsigned long capacity_of(int cpu);
+ 
+@@ -7578,6 +7578,24 @@ static inline int __select_idle_cpu(int cpu, struct task_struct *p)
+ DEFINE_STATIC_KEY_FALSE(sched_smt_present);
+ EXPORT_SYMBOL_GPL(sched_smt_present);
+ 
++/*
++ * Return true if all the CPUs in the SMT core where @cpu belongs are idle,
++ * false otherwise.
++ */
++static bool is_idle_core(int cpu)
++{
++	int sibling;
++
++	if (!sched_smt_active())
++		return (available_idle_cpu(cpu) || sched_idle_cpu(cpu));
++
++	for_each_cpu(sibling, cpu_smt_mask(cpu))
++		if (!available_idle_cpu(sibling) && !sched_idle_cpu(sibling))
++			return false;
++
++	return true;
++}
++
+ static inline void set_idle_cores(int cpu, int val)
+ {
+ 	struct sched_domain_shared *sds;
+@@ -7846,13 +7864,29 @@ static inline bool asym_fits_cpu(unsigned long util,
+ /*
+  * Try and locate an idle core/thread in the LLC cache domain.
+  */
+-static int select_idle_sibling(struct task_struct *p, int prev, int target)
++static int select_idle_sibling(struct task_struct *p, int prev, int target, int sync)
+ {
+ 	bool has_idle_core = false;
+ 	struct sched_domain *sd;
+ 	unsigned long task_util, util_min, util_max;
+ 	int i, recent_used_cpu, prev_aff = -1;
+ 
++	/* Check a recently used CPU as a potential idle candidate: */
++	recent_used_cpu = p->recent_used_cpu;
++	p->recent_used_cpu = prev;
++	if (recent_used_cpu != prev &&
++	    recent_used_cpu != target &&
++	    cpus_share_cache(recent_used_cpu, target) &&
++	    (available_idle_cpu(recent_used_cpu) || sched_idle_cpu(recent_used_cpu)) &&
++	    cpumask_test_cpu(recent_used_cpu, p->cpus_ptr)) {
++
++		if ((unsigned int)recent_used_cpu < nr_cpumask_bits &&
++		    is_idle_core(recent_used_cpu))
++			return recent_used_cpu;
++	} else {
++		recent_used_cpu = -1;
++	}
++
+ 	/*
+ 	 * On asymmetric system, update task utilization because we will check
+ 	 * that the task fits with CPU's capacity.
+@@ -7869,7 +7903,7 @@ static int select_idle_sibling(struct task_struct *p, int prev, int target)
+ 	 */
+ 	lockdep_assert_irqs_disabled();
+ 
+-	if ((available_idle_cpu(target) || sched_idle_cpu(target)) &&
++	if (sync && is_idle_core(target) &&
+ 	    asym_fits_cpu(task_util, util_min, util_max, target))
+ 		return target;
+ 
+@@ -7903,24 +7937,6 @@ static int select_idle_sibling(struct task_struct *p, int prev, int target)
+ 		return prev;
+ 	}
+ 
+-	/* Check a recently used CPU as a potential idle candidate: */
+-	recent_used_cpu = p->recent_used_cpu;
+-	p->recent_used_cpu = prev;
+-	if (recent_used_cpu != prev &&
+-	    recent_used_cpu != target &&
+-	    cpus_share_cache(recent_used_cpu, target) &&
+-	    (available_idle_cpu(recent_used_cpu) || sched_idle_cpu(recent_used_cpu)) &&
+-	    cpumask_test_cpu(recent_used_cpu, p->cpus_ptr) &&
+-	    asym_fits_cpu(task_util, util_min, util_max, recent_used_cpu)) {
+-
+-		if (!static_branch_unlikely(&sched_cluster_active) ||
+-		    cpus_share_resources(recent_used_cpu, target))
+-			return recent_used_cpu;
+-
+-	} else {
+-		recent_used_cpu = -1;
+-	}
+-
+ 	/*
+ 	 * For asymmetric CPU capacity systems, our domain of interest is
+ 	 * sd_asym_cpucapacity rather than sd_llc.
+@@ -8652,7 +8668,14 @@ select_task_rq_fair(struct task_struct *p, int prev_cpu, int wake_flags)
+ 		new_cpu = sched_balance_find_dst_cpu(sd, p, cpu, prev_cpu, sd_flag);
+ 	} else if (wake_flags & WF_TTWU) { /* XXX always ? */
+ 		/* Fast path */
+-		new_cpu = select_idle_sibling(p, prev_cpu, new_cpu);
++		/*
++		 * If the previous CPU is an idle core, retain the same for
++		 * cache locality. Otherwise, search for an idle sibling.
++		 */
++		if (is_idle_core(prev_cpu))
++			new_cpu = prev_cpu;
++		else
++			new_cpu = select_idle_sibling(p, prev_cpu, new_cpu, sync);
+ 	}
+ 	rcu_read_unlock();
+ 
+@@ -10347,7 +10370,7 @@ static bool sched_use_asym_prio(struct sched_domain *sd, int cpu)
+ 	if (!sched_smt_active())
+ 		return true;
+ 
+-	return sd->flags & SD_SHARE_CPUCAPACITY || is_core_idle(cpu);
++	return sd->flags & SD_SHARE_CPUCAPACITY || is_idle_core(cpu);
+ }
+ 
+ static inline bool sched_asym(struct sched_domain *sd, int dst_cpu, int src_cpu)
+diff --git a/kernel/sched/core.c b/kernel/sched/core.c
+index 496dff740dcafe..d465546be1105b 100644
+--- a/kernel/sched/core.c
++++ b/kernel/sched/core.c
+@@ -9137,7 +9137,7 @@ void sched_release_group(struct task_group *tg)
+ 	spin_unlock_irqrestore(&task_group_lock, flags);
+ }
+ 
+-static void sched_change_group(struct task_struct *tsk)
++static struct task_group *sched_get_task_group(struct task_struct *tsk)
+ {
+ 	struct task_group *tg;
+ 
+@@ -9149,8 +9149,13 @@ static void sched_change_group(struct task_struct *tsk)
+ 	tg = container_of(task_css_check(tsk, cpu_cgrp_id, true),
+ 			  struct task_group, css);
+ 	tg = autogroup_task_group(tsk, tg);
+-	tsk->sched_task_group = tg;
+ 
++	return tg;
++}
++
++static void sched_change_group(struct task_struct *tsk, struct task_group *group)
++{
++	tsk->sched_task_group = group;
+ #ifdef CONFIG_FAIR_GROUP_SCHED
+ 	if (tsk->sched_class->task_change_group)
+ 		tsk->sched_class->task_change_group(tsk);
+@@ -9159,6 +9164,18 @@ static void sched_change_group(struct task_struct *tsk)
+ 		set_task_rq(tsk, task_cpu(tsk));
+ }
+ 
++static struct task_group *sched_needs_group_change(struct task_struct *tsk)
++{
++	struct task_group *new_group;
++
++	new_group = sched_get_task_group(tsk);
++
++	if (likely(new_group == tsk->sched_task_group))
++		return NULL;
++
++	return new_group;
++}
++
+ /*
+  * Change task's runqueue when it moves between groups.
+  *
+@@ -9168,16 +9185,21 @@ static void sched_change_group(struct task_struct *tsk)
+  */
+ void sched_move_task(struct task_struct *tsk, bool for_autogroup)
+ {
++	struct task_group *new_group;
+ 	unsigned int queue_flags = DEQUEUE_SAVE | DEQUEUE_MOVE;
+ 	bool resched = false;
+ 	bool queued = false;
+ 	struct rq *rq;
+ 
++	if (!(new_group = sched_needs_group_change(tsk)))
++		return;
++
+ 	CLASS(task_rq_lock, rq_guard)(tsk);
+ 	rq = rq_guard.rq;
++	update_rq_clock(rq);
+ 
+ 	scoped_guard (sched_change, tsk, queue_flags) {
+-		sched_change_group(tsk);
++		sched_change_group(tsk, new_group);
+ 		if (!for_autogroup)
+ 			scx_cgroup_move_task(tsk);
+ 		if (scope->running)
+diff --git a/include/linux/wait.h b/include/linux/wait.h
+index dce055e6add390..87b75e452c46ae 100644
+--- a/include/linux/wait.h
++++ b/include/linux/wait.h
+@@ -1224,6 +1224,7 @@ do {										\
+  */
+ void prepare_to_wait(struct wait_queue_head *wq_head, struct wait_queue_entry *wq_entry, int state);
+ bool prepare_to_wait_exclusive(struct wait_queue_head *wq_head, struct wait_queue_entry *wq_entry, int state);
++void prepare_to_wait_exclusive_lifo(struct wait_queue_head *wq_head, struct wait_queue_entry *wq_entry, int state);
+ long prepare_to_wait_event(struct wait_queue_head *wq_head, struct wait_queue_entry *wq_entry, int state);
+ void finish_wait(struct wait_queue_head *wq_head, struct wait_queue_entry *wq_entry);
+ long wait_woken(struct wait_queue_entry *wq_entry, unsigned mode, long timeout);
+diff --git a/kernel/sched/wait.c b/kernel/sched/wait.c
+index 20f27e2cf7aec6..088ad272f1d0b2 100644
+--- a/kernel/sched/wait.c
++++ b/kernel/sched/wait.c
+@@ -277,6 +277,19 @@ prepare_to_wait_exclusive(struct wait_queue_head *wq_head, struct wait_queue_ent
+ }
+ EXPORT_SYMBOL(prepare_to_wait_exclusive);
+ 
++void prepare_to_wait_exclusive_lifo(struct wait_queue_head *wq_head, struct wait_queue_entry *wq_entry, int state)
++{
++	unsigned long flags;
++
++	wq_entry->flags |= WQ_FLAG_EXCLUSIVE;
++	spin_lock_irqsave(&wq_head->lock, flags);
++	if (list_empty(&wq_entry->entry))
++		__add_wait_queue(wq_head, wq_entry);
++	set_current_state(state);
++	spin_unlock_irqrestore(&wq_head->lock, flags);
++}
++EXPORT_SYMBOL(prepare_to_wait_exclusive_lifo);
++
+ void init_wait_entry(struct wait_queue_entry *wq_entry, int flags)
+ {
+ 	wq_entry->flags = flags;
+diff --git a/net/ipv4/inet_connection_sock.c b/net/ipv4/inet_connection_sock.c
+index 5dfac6ce1110b3..ce3f3bb0c38ba5 100644
+--- a/net/ipv4/inet_connection_sock.c
++++ b/net/ipv4/inet_connection_sock.c
+@@ -634,7 +634,7 @@ static int inet_csk_wait_for_connect(struct sock *sk, long timeo)
+ 	 * having to remove and re-insert us on the wait queue.
+ 	 */
+ 	for (;;) {
+-		prepare_to_wait_exclusive(sk_sleep(sk), &wait,
++		prepare_to_wait_exclusive_lifo(sk_sleep(sk), &wait,
+ 					  TASK_INTERRUPTIBLE);
+ 		release_sock(sk);
+ 		if (reqsk_queue_empty(&icsk->icsk_accept_queue))
+diff --git a/kernel/sched/sched.h b/kernel/sched/sched.h
+index 55c7b032a2076b..86bfd277c1028b 100644
+--- a/kernel/sched/sched.h
++++ b/kernel/sched/sched.h
+@@ -3001,7 +3001,7 @@ extern void deactivate_task(struct rq *rq, struct task_struct *p, int flags);
+ 
+ extern void wakeup_preempt(struct rq *rq, struct task_struct *p, int flags);
+ 
+-#if defined(CONFIG_PREEMPT_RT) || defined(CONFIG_CACHY)
++#if defined(CONFIG_PREEMPT_RT) || defined(CONFIG_CACHY) && !defined(CONFIG_SCHED_BORE)
+ # define SCHED_NR_MIGRATE_BREAK 8
+ #else
+ # define SCHED_NR_MIGRATE_BREAK 32
