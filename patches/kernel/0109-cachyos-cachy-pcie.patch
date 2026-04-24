@@ -15,9 +15,9 @@ index 03a550630644f4..df2b2bb9fa5d81 100644
 +				id:nnnn:nnnn
 +					Specfic device - full ACS capabilities
 +					Specified as vid:did (vendor/device ID) in hex
- 		noioapicquirk	[APIC] Disable all boot interrupt quirks.
- 				Safety option to keep boot IRQs enabled. This
- 				should never be necessary.
+ 		clearmsi	[X86] Clears MSI/MSI-X enable bits early in boot
+ 				time in order to avoid issues like adapters
+ 				screaming irqs and preventing boot progress.
 diff --git a/drivers/pci/quirks.c b/drivers/pci/quirks.c
 index 48946cca4be72c..9a9ad2c1f4f221 100644
 --- a/drivers/pci/quirks.c

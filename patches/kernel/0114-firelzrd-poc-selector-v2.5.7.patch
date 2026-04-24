@@ -39,6 +39,10 @@ index 45c0022b91ced3..dd612d08066745 100644
 +	u64		poc_smt_mask[64] ____cacheline_aligned;
 +#endif /* CONFIG_SCHED_SMT */
 +#endif /* CONFIG_SCHED_POC_SELECTOR */
+ #ifdef CONFIG_SCHED_CACHE
+ 	unsigned long   util_avg;
+ 	unsigned long   capacity;
+ #endif
  };
  
  struct sched_domain {
