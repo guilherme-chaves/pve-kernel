@@ -2,19 +2,6 @@ diff --git a/kernel/fork.c b/kernel/fork.c
 index bc2bf58b93b652..5dd8301dc7ca93 100644
 --- a/kernel/fork.c
 +++ b/kernel/fork.c
-@@ -124,6 +124,12 @@
- 
- #include <kunit/visibility.h>
- 
-+#ifdef CONFIG_USER_NS
-+static int unprivileged_userns_clone = 1;
-+#else
-+#define unprivileged_userns_clone 1
-+#endif
-+
- /*
-  * Minimum number of threads to boot the kernel
-  */
 @@ -2028,6 +2034,11 @@ __latent_entropy struct task_struct *copy_process(
  			return ERR_PTR(-EINVAL);
  	}

@@ -28,7 +28,6 @@ index 0fc9373e825115..9b7a43d7414724 100644
  	/* whether this lruvec should be rotated */
  	return nr_to_scan < 0;
  }
-
 diff --git a/mm/vmscan.c b/mm/vmscan.c
 index 9b7a43d7414724..8132e8014ae93d 100644
 --- a/mm/vmscan.c
@@ -104,7 +103,6 @@ index 9b7a43d7414724..8132e8014ae93d 100644
  	/* better to run aging even though eviction is still possible */
  	return evictable_min_seq(min_seq, swappiness) + MIN_NR_GENS == max_seq;
  }
-
 diff --git a/mm/vmscan.c b/mm/vmscan.c
 index 8132e8014ae93d..7e38d9b22d18e1 100644
 --- a/mm/vmscan.c
@@ -167,7 +165,6 @@ index 8132e8014ae93d..7e38d9b22d18e1 100644
  		return 0;
  
  	/* one retry if offlined or too small */
-
 diff --git a/mm/vmscan.c b/mm/vmscan.c
 index 7e38d9b22d18e1..8583f4e37f0eae 100644
 --- a/mm/vmscan.c
@@ -233,7 +230,6 @@ index 7e38d9b22d18e1..8583f4e37f0eae 100644
  			return 0;
  
  		cond_resched();
-
 diff --git a/mm/vmscan.c b/mm/vmscan.c
 index 8583f4e37f0eae..06fa21abd0289e 100644
 --- a/mm/vmscan.c
@@ -369,7 +365,6 @@ index 8583f4e37f0eae..06fa21abd0289e 100644
  }
  
  static int shrink_one(struct lruvec *lruvec, struct scan_control *sc)
-
 diff --git a/mm/vmscan.c b/mm/vmscan.c
 index 06fa21abd0289e..9a0e77d0064c9a 100644
 --- a/mm/vmscan.c
@@ -520,7 +515,6 @@ index 06fa21abd0289e..9a0e77d0064c9a 100644
  			type ? LRU_INACTIVE_FILE : LRU_INACTIVE_ANON);
  
  	list_for_each_entry_safe_reverse(folio, next, &list, lru) {
-
 diff --git a/mm/vmscan.c b/mm/vmscan.c
 index 9a0e77d0064c9a..5778e8b145652d 100644
 --- a/mm/vmscan.c
@@ -534,7 +528,6 @@ index 9a0e77d0064c9a..5778e8b145652d 100644
  		delta = evict_folios(nr_batch, lruvec, sc, swappiness);
  		if (!delta)
  			break;
-
 diff --git a/mm/vmscan.c b/mm/vmscan.c
 index 5778e8b145652d..195d0f1da352ea 100644
 --- a/mm/vmscan.c
@@ -568,7 +561,6 @@ index 5778e8b145652d..195d0f1da352ea 100644
  		nr_to_scan -= delta;
  		cond_resched();
  	}
-
 diff --git a/mm/vmscan.c b/mm/vmscan.c
 index 195d0f1da352ea..458c8fb2e3133e 100644
 --- a/mm/vmscan.c
@@ -586,7 +578,6 @@ index 195d0f1da352ea..458c8fb2e3133e 100644
  	/* raced with release_pages() */
  	if (!folio_try_get(folio))
  		return false;
-
 diff --git a/mm/vmscan.c b/mm/vmscan.c
 index 458c8fb2e3133e..6c4c007ad784d8 100644
 --- a/mm/vmscan.c
@@ -752,7 +743,6 @@ index b05f0595f4f40a..2050c3689542aa 100644
  		list_move_tail(&folio->lru, &lrugen->folios[gen][type][zone]);
  		return true;
  	}
-
 diff --git a/mm/vmscan.c b/mm/vmscan.c
 index 2050c3689542aa..4ebf8d487c7277 100644
 --- a/mm/vmscan.c
@@ -774,7 +764,6 @@ index 2050c3689542aa..4ebf8d487c7277 100644
  
  	trace_mm_vmscan_lru_shrink_inactive(pgdat->node_id,
  			nr_scanned, nr_reclaimed, &stat, sc->priority, file);
-
 diff --git a/mm/vmscan.c b/mm/vmscan.c
 index 4ebf8d487c7277..95d9f7c16f2d08 100644
 --- a/mm/vmscan.c
@@ -795,7 +784,6 @@ index 4ebf8d487c7277..95d9f7c16f2d08 100644
  	sc->nr.writeback += stat.nr_writeback;
  	sc->nr.immediate += stat.nr_immediate;
  	sc->nr.taken += nr_taken;
-
 diff --git a/mm/vmscan.c b/mm/vmscan.c
 index 95d9f7c16f2d08..f073cd4547b36e 100644
 --- a/mm/vmscan.c

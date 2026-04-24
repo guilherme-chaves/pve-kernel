@@ -497,7 +497,6 @@ index 43bbf0693cca40..0a38bfc704a445 100644
  extern u64 avg_vruntime(struct cfs_rq *cfs_rq);
  extern int entity_eligible(struct cfs_rq *cfs_rq, struct sched_entity *se);
  static inline
-
 diff --git a/kernel/sched/fair.c b/kernel/sched/fair.c
 index eb3cfb852a932b..20a33900f4ea52 100644
 --- a/kernel/sched/fair.c
@@ -562,7 +561,6 @@ index eb3cfb852a932b..20a33900f4ea52 100644
  
  		for_each_cpu(cpu, cpus) {
  			/* XXX sched_cluster_active */
-
 diff --git a/include/linux/sched/topology.h b/include/linux/sched/topology.h
 index 45c0022b91ced3..a4e2fb31f2fd82 100644
 --- a/include/linux/sched/topology.h
@@ -673,7 +671,6 @@ index 20a33900f4ea52..f6692d9de01792 100644
  	/* Computing avg_load makes sense only when group is overloaded */
  	if (sgs->group_type == group_overloaded)
  		sgs->avg_load = (sgs->group_load * SCHED_CAPACITY_SCALE) /
-
 diff --git a/kernel/sched/fair.c b/kernel/sched/fair.c
 index f6692d9de01792..6244443ecdc0e5 100644
 --- a/kernel/sched/fair.c
@@ -859,7 +856,6 @@ index f6692d9de01792..6244443ecdc0e5 100644
  #else
  static inline bool get_llc_stats(int cpu, unsigned long *util,
  				 unsigned long *cap)
-
 diff --git a/kernel/sched/core.c b/kernel/sched/core.c
 index 7e3173f7d90131..e8ced89507da53 100644
 --- a/kernel/sched/core.c
@@ -1039,7 +1035,6 @@ index 32dcddaead82d9..edf6d7ec73ca78 100644
  	zalloc_cpumask_var(&sched_domains_tmpmask, GFP_KERNEL);
  	zalloc_cpumask_var(&sched_domains_tmpmask2, GFP_KERNEL);
  	zalloc_cpumask_var(&fallback_doms, GFP_KERNEL);
-
 diff --git a/include/linux/sched.h b/include/linux/sched.h
 index 29d0df6dfd3ce8..6957b6cc40338f 100644
 --- a/include/linux/sched.h
@@ -1139,7 +1134,6 @@ index 6244443ecdc0e5..1eda689e0136ee 100644
  #endif /* CONFIG_SCHED_CACHE */
  
  /*
-
 diff --git a/kernel/sched/core.c b/kernel/sched/core.c
 index e8ced89507da53..8db2f4ee96ed02 100644
 --- a/kernel/sched/core.c
@@ -1278,7 +1272,6 @@ index 9defeeeb3e8ea9..081f23a48414fc 100644
  static inline void
  queue_balance_callback(struct rq *rq,
  		       struct balance_callback *head,
-
 diff --git a/include/linux/sched/topology.h b/include/linux/sched/topology.h
 index a4e2fb31f2fd82..73153a3d903629 100644
 --- a/include/linux/sched/topology.h
@@ -1406,7 +1399,6 @@ index edf6d7ec73ca78..995a42cb46978e 100644
  	/* Attach the domains */
  	rcu_read_lock();
  	for_each_cpu(i, cpu_map) {
-
 diff --git a/kernel/sched/fair.c b/kernel/sched/fair.c
 index 4b760bd604e79c..e6474e61f4aac7 100644
 --- a/kernel/sched/fair.c
@@ -1487,7 +1479,6 @@ index 4b760bd604e79c..e6474e61f4aac7 100644
  }
  
  void mm_init_sched(struct mm_struct *mm,
-
 diff --git a/kernel/sched/fair.c b/kernel/sched/fair.c
 index e6474e61f4aac7..62a628a1594c8a 100644
 --- a/kernel/sched/fair.c
@@ -1524,7 +1515,6 @@ index e6474e61f4aac7..62a628a1594c8a 100644
  		/*
  		 * No need to call idle_cpu() if nr_running is not 0
  		 */
-
 diff --git a/kernel/sched/fair.c b/kernel/sched/fair.c
 index 62a628a1594c8a..4ed84086244c70 100644
 --- a/kernel/sched/fair.c
@@ -1705,7 +1695,6 @@ index 4ed84086244c70..c032eeebe191b8 100644
  		goto force_balance;
  
  	if (busiest->group_type != group_overloaded) {
-
 diff --git a/kernel/sched/fair.c b/kernel/sched/fair.c
 index c032eeebe191b8..e0e618cd4e15cc 100644
 --- a/kernel/sched/fair.c
@@ -1876,7 +1865,6 @@ index e0e618cd4e15cc..fef916afa1d508 100644
  		return 1;
  
  	return 0;
-
 diff --git a/kernel/sched/fair.c b/kernel/sched/fair.c
 index fef916afa1d508..9541e94370e7ef 100644
 --- a/kernel/sched/fair.c
@@ -2041,7 +2029,6 @@ index 081f23a48414fc..511c85572b9696 100644
  #endif /* !CONFIG_SCHED_CORE */
  
  #ifdef CONFIG_RT_GROUP_SCHED
-
 diff --git a/include/linux/sched.h b/include/linux/sched.h
 index 6957b6cc40338f..45e22fbf54ed77 100644
 --- a/include/linux/sched.h
@@ -2165,7 +2152,6 @@ index 9541e94370e7ef..077ae7875e2e38 100644
  	if (cpus_share_cache(dst_cpu, cpu))
  		to_pref = true;
  	else if (cpus_share_cache(src_cpu, cpu))
-
 diff --git a/include/linux/cacheinfo.h b/include/linux/cacheinfo.h
 index c8f4f0a0b874e2..82d0d59ca0e164 100644
 --- a/include/linux/cacheinfo.h
@@ -2297,7 +2283,6 @@ index 077ae7875e2e38..a2d1b8b2a1886e 100644
  		if (mm->sc_stat.cpu != -1)
  			mm->sc_stat.cpu = -1;
  		return mig_unrestricted;
-
 diff --git a/kernel/sched/sched.h b/kernel/sched/sched.h
 index 511c85572b9696..518c798231acfe 100644
 --- a/kernel/sched/sched.h
@@ -2367,7 +2352,6 @@ index 995a42cb46978e..0b1fc1b0709db5 100644
  	__free_domain_allocs(&d, alloc_state, cpu_map);
  
  	return ret;
-
 diff --git a/kernel/sched/debug.c b/kernel/sched/debug.c
 index b24f40f05019a8..3019412d800928 100644
 --- a/kernel/sched/debug.c
