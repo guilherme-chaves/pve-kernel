@@ -367,6 +367,7 @@ index 5567da6..439a3c1 100644
 -
  # Require designated initializers for all marked structures
  KBUILD_CFLAGS += $(call cc-option,-Werror=designated-init)
+ 
 diff -uarp a/ubuntu/igh-ecat/master/Makefile b/ubuntu/igh-ecat/master/Makefile
 --- a/ubuntu/igh-ecat/master/Makefile
 +++ b/ubuntu/igh-ecat/master/Makefile 
@@ -377,7 +378,7 @@ diff -uarp a/ubuntu/igh-ecat/master/Makefile b/ubuntu/igh-ecat/master/Makefile
 +	$(call cc-option,-Wmaybe-uninitialized)
  
  obj-$(CONFIG_IGH_ECAT) += ec_master.o
-   
+
 diff -uarp a/ubuntu/igh-ecat/master/Kbuild.in b/ubuntu/igh-ecat/master/Kbuild.in
 --- a/ubuntu/igh-ecat/master/Kbuild.in
 +++ b/ubuntu/igh-ecat/master/Kbuild.in
@@ -387,3 +388,4 @@ diff -uarp a/ubuntu/igh-ecat/master/Kbuild.in b/ubuntu/igh-ecat/master/Kbuild.in
  
 -KBUILD_CFLAGS += -Wmaybe-uninitialized
 +KBUILD_CFLAGS += $(call cc-option,-Wmaybe-uninitialized)
+ 
