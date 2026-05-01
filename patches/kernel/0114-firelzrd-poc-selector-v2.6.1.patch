@@ -4671,7 +4671,20 @@ index 8f2078c17786ca..97d95a8787a338 100644
  
  #include "stats.h"
  
-diff -u a/kernel/sched/poc_selector.c b/kernel/sched/poc_selector.c
+diff --git a/kernel/sched/fair.c b/kernel/sched/fair.c
+index d75da19b59a5aa..2d9ebfa58b8095 100644
+--- a/kernel/sched/fair.c
++++ b/kernel/sched/fair.c
+@@ -49,6 +49,7 @@
+ #include <linux/ratelimit.h>
+ #include <linux/task_work.h>
+ #include <linux/rbtree_augmented.h>
++#include <linux/prefetch.h>
+ 
+ #include <asm/switch_to.h>
+ 
+diff --git a/kernel/sched/poc_selector.c b/kernel/sched/poc_selector.c
+index 4c3eb77c5b1ab2..5bbd9278288f0c 100644
 --- a/kernel/sched/poc_selector.c
 +++ b/kernel/sched/poc_selector.c
 @@ -37,7 +37,7 @@
@@ -4679,14 +4692,15 @@ diff -u a/kernel/sched/poc_selector.c b/kernel/sched/poc_selector.c
  #define SCHED_POC_SELECTOR_PROGNAME "Piece-Of-Cake (POC) CPU Selector"
  
 -#define SCHED_POC_SELECTOR_VERSION  "2.5.7"
-+#define SCHED_POC_SELECTOR_VERSION  "2.6.0-beta1"
++#define SCHED_POC_SELECTOR_VERSION  "2.6.1"
  
  /**************************************************************
   * Static keys:
-@@ -77,27 +77,6 @@
+@@ -76,27 +76,6 @@ static bool poc_selector_skip;
+  */
  DEFINE_STATIC_KEY_FALSE(sched_poc_smt_fallback);
  
- /*
+-/*
 - * Eager selection commit: sched_poc_eager_commit
 - * (sysctl kernel.sched_poc_eager_commit)
 - *
@@ -4707,14 +4721,14 @@ diff -u a/kernel/sched/poc_selector.c b/kernel/sched/poc_selector.c
 - */
 -DEFINE_STATIC_KEY_TRUE(sched_poc_eager_commit);
 -
--/*
+ /*
   * SMT consecutive layout: sched_poc_smt_consecutive
   *
-  * When true (default), SMT siblings occupy consecutive LLC-relative
-@@ -209,6 +188,27 @@
+@@ -208,6 +187,27 @@ DEFINE_STATIC_KEY_TRUE(sched_poc_aligned);
+  */
  DEFINE_STATIC_KEY_TRUE(sched_poc_packed);
  
- /*
++/*
 + * Improved RR strategy: sched_poc_rr_improved
 + * (sysctl kernel.sched_poc_rr_improved)
 + *
@@ -4735,14 +4749,14 @@ diff -u a/kernel/sched/poc_selector.c b/kernel/sched/poc_selector.c
 + */
 +DEFINE_STATIC_KEY_TRUE(sched_poc_rr_improved);
 +
-+/*
+ /*
   * Lockless bitmap mode: sched_poc_lockless_bitmap
   * (sysctl kernel.sched_poc_lockless_bitmap)
-  *
-@@ -270,6 +270,19 @@
+@@ -269,6 +269,19 @@ static __always_inline void poc_count(enum poc_level lv)
+  * Per-CPU round-robin counter and division-free mapping:
   */
  
- /*
++/*
 + * POC_HASH_MULT / POC_SCRAMBLE — Golden-ratio scrambling
 + *
 + * Multiplying a 32-bit counter by ⌊2^32 / φ⌋ = 0x9E3779B9 scatters
@@ -4755,14 +4769,14 @@ diff -u a/kernel/sched/poc_selector.c b/kernel/sched/poc_selector.c
 +#define POC_HASH_MULT 0x9E3779B9U  /* golden ratio * 2^32 */
 +#define POC_SCRAMBLE(counter) ((u32)(counter) * POC_HASH_MULT)
 +
-+/*
+ /*
   * Per-CPU round-robin counter for idle CPU selection.
   * Each CPU starts at a different offset to reduce cross-CPU
-  * collision probability.  Combined with poc_rr_step[] and
-@@ -300,6 +313,20 @@
+@@ -299,6 +312,20 @@ static DEFINE_PER_CPU(u32, poc_rr_counter);
+  */
  #define POC_FIXED_MOD16(phase, range) ((u32)(((u32)(phase) * (u32)(range)) >> 16))
  
- /*
++/*
 + * POC_FASTRANGE — Map a 32-bit scrambled value to [0, range)
 + *
 + * Implements Lemire's fastrange technique:
@@ -4776,14 +4790,14 @@ diff -u a/kernel/sched/poc_selector.c b/kernel/sched/poc_selector.c
 + */
 +#define POC_FASTRANGE(seed, range) ((u32)(((u64)(seed) * (u32)(range)) >> 32))
 +
-+/*
+ /*
   * RR step table: poc_rr_step[n-1] = ceil(2^16 / n) for n = 1..64
   *
-  * Indexed by (total - 1) where total = popcount(idle mask).
-@@ -671,6 +698,53 @@
+@@ -670,6 +697,53 @@ void __set_cpu_idle_state_poc(int cpu, int state)
+ #define POC_CPU_VALID(cpu)	((cpu) >= 0)
  #define POC_CPU_IN_LLC(bit)	((unsigned int)(bit) < 64)
  
- /*
++/*
 + * poc_select_rr_improved - Improved round-robin idle CPU selection
 + * @base: poc_cpu_base (smallest CPU ID in this LLC)
 + * @mask: idle bitmask (snapshot, caller guarantees non-zero)
@@ -4830,11 +4844,10 @@ diff -u a/kernel/sched/poc_selector.c b/kernel/sched/poc_selector.c
 +	}
 +}
 +
-+/*
+ /*
   * poc_select_rr - Round-robin idle CPU selection from a single-word mask
   * @base: poc_cpu_base (smallest CPU ID in this LLC)
-  * @mask: idle bitmask (snapshot)
-@@ -684,11 +758,17 @@
+@@ -684,11 +758,17 @@ void __set_cpu_idle_state_poc(int cpu, int state)
   */
  static __always_inline int poc_select_rr(int base, u64 mask, unsigned int counter)
  {
@@ -4856,7 +4869,7 @@ diff -u a/kernel/sched/poc_selector.c b/kernel/sched/poc_selector.c
  }
  
  /*
-@@ -706,10 +786,17 @@
+@@ -706,10 +786,17 @@ static __always_inline int poc_cluster_search(int base, int tgt_bit,
  {
  	u64 cls_idle = mask & sd_share->poc_cluster_mask[tgt_bit];
  
@@ -4877,7 +4890,7 @@ diff -u a/kernel/sched/poc_selector.c b/kernel/sched/poc_selector.c
  }
  
  #ifdef CONFIG_SCHED_SMT
-@@ -800,16 +887,17 @@
+@@ -800,16 +887,17 @@ static __always_inline int poc_try_idle_smt(int base, int cpu,
   * @cpu: the CPU number selected by POC
   * @sd_share: per-LLC shared data
   *
@@ -4901,7 +4914,7 @@ diff -u a/kernel/sched/poc_selector.c b/kernel/sched/poc_selector.c
  		int bit = cpu - sd_share->poc_cpu_base;
  
  		if (static_branch_unlikely(&sched_poc_lockless_bitmap)) {
-@@ -1041,17 +1129,24 @@
+@@ -1041,17 +1129,24 @@ static __always_inline int select_idle_cpu_poc(int target, int prev,
  		*
  		* Packs cluster candidates (high priority) into lower 32 bits
  		* and all LLC candidates (low priority) into upper 32 bits.
@@ -4929,7 +4942,7 @@ diff -u a/kernel/sched/poc_selector.c b/kernel/sched/poc_selector.c
  		if (static_branch_likely(&sched_cluster_active) &&
  				sd_share->poc_cluster_valid)
  			cls = ror32((u32)(cpu_mask &
-@@ -1230,11 +1325,11 @@
+@@ -1230,11 +1325,11 @@ static int sched_poc_smt_fallback_sysctl_handler(const struct ctl_table *table,
  	return ret;
  }
  
@@ -4943,7 +4956,7 @@ diff -u a/kernel/sched/poc_selector.c b/kernel/sched/poc_selector.c
  	struct ctl_table tmp = {
  		.data    = &val,
  		.maxlen  = sizeof(val),
-@@ -1245,9 +1340,9 @@
+@@ -1245,9 +1340,9 @@ static int sched_poc_eager_commit_sysctl_handler(const struct ctl_table *table,
  
  	if (!ret && write) {
  		if (val)
@@ -4955,7 +4968,7 @@ diff -u a/kernel/sched/poc_selector.c b/kernel/sched/poc_selector.c
  	}
  	return ret;
  }
-@@ -1385,11 +1480,11 @@
+@@ -1385,11 +1480,11 @@ static struct ctl_table sched_poc_sysctls[] = {
  		.proc_handler	= sched_poc_smt_fallback_sysctl_handler,
  	},
  	{
@@ -4969,10 +4982,11 @@ diff -u a/kernel/sched/poc_selector.c b/kernel/sched/poc_selector.c
  	},
  	{
  		.procname	= "sched_poc_target_sticky",
-diff -u a/kernel/sched/sched.h b/kernel/sched/sched.h
+diff --git a/kernel/sched/sched.h b/kernel/sched/sched.h
+index 97d95a8787a338..743ad0ce183fc9 100644
 --- a/kernel/sched/sched.h
 +++ b/kernel/sched/sched.h
-@@ -2299,7 +2299,6 @@
+@@ -2299,7 +2299,6 @@ extern struct static_key_true sched_poc_aligned;
  extern struct static_key_true sched_poc_smt_consecutive;
  extern struct static_key_true sched_poc_smt_uniform;
  extern struct static_key_false sched_poc_target_sticky;
@@ -4980,3 +4994,15 @@ diff -u a/kernel/sched/sched.h b/kernel/sched/sched.h
  extern struct static_key_true sched_poc_packed;
  extern struct static_key_false sched_poc_lockless_bitmap;
  extern void __set_cpu_idle_state_poc(int cpu, int state);
+@@ -2396,10 +2395,6 @@ static __always_inline u64 poc_cpumask_to_u64(const struct cpumask *mask,
+ 
+ static inline void __set_task_cpu(struct task_struct *p, unsigned int cpu)
+ {
+-#ifdef CONFIG_SCHED_POC_SELECTOR
+-	if (cpu_rq(cpu)->idle_stamp)
+-		set_cpu_idle_state_poc(cpu, 0);
+-#endif
+ 	set_task_rq(p, cpu);
+ #ifdef CONFIG_SMP
+ 	/*
+
