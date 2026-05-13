@@ -857,7 +857,7 @@ index 51ef13ed756eb5..87259e309dee3b 100644
  
  #endif /* __LINUX_GFP_H */
 diff --git a/mm/page_alloc.c b/mm/page_alloc.c
-index 2d4b6f1a554ed2..fc3f1456f3839d 100644
+index e92898ad51cd81..1ad431968a3481 100644
 --- a/mm/page_alloc.c
 +++ b/mm/page_alloc.c
 @@ -90,6 +90,9 @@ typedef int __bitwise fpi_t;
@@ -870,7 +870,7 @@ index 2d4b6f1a554ed2..fc3f1456f3839d 100644
  /* prevent >1 _updater_ of zone percpu pageset ->high and ->batch fields */
  static DEFINE_MUTEX(pcp_batch_high_lock);
  #define MIN_PERCPU_PAGELIST_HIGH_FRACTION (8)
-@@ -1339,8 +1342,8 @@ static inline void pgalloc_tag_sub_pages(struct alloc_tag *tag, unsigned int nr)
+@@ -1347,8 +1350,8 @@ static inline void pgalloc_tag_sub_pages(struct alloc_tag *tag, unsigned int nr)
  
  #endif /* CONFIG_MEM_ALLOC_PROFILING */
  
@@ -881,7 +881,7 @@ index 2d4b6f1a554ed2..fc3f1456f3839d 100644
  {
  	int bad = 0;
  	bool skip_kasan_poison = should_skip_kasan_poison(page);
-@@ -1348,6 +1351,9 @@ __always_inline bool __free_pages_prepare(struct page *page,
+@@ -1356,6 +1359,9 @@ __always_inline bool __free_pages_prepare(struct page *page,
  	bool compound = PageCompound(page);
  	struct folio *folio = page_folio(page);
  
@@ -891,7 +891,7 @@ index 2d4b6f1a554ed2..fc3f1456f3839d 100644
  	VM_BUG_ON_PAGE(PageTail(page), page);
  
  	trace_mm_page_free(page, order);
-@@ -6824,6 +6830,105 @@ void __init page_alloc_sysctl_init(void)
+@@ -6832,6 +6838,105 @@ void __init page_alloc_sysctl_init(void)
  	register_sysctl_init("vm", page_alloc_sysctl_table);
  }
  
@@ -997,7 +997,7 @@ index 2d4b6f1a554ed2..fc3f1456f3839d 100644
  #ifdef CONFIG_CONTIG_ALLOC
  /* Usage: See admin-guide/dynamic-debug-howto.rst */
  static void alloc_contig_dump_pages(struct list_head *page_list)
-@@ -7370,8 +7475,7 @@ void free_contig_range(unsigned long pfn, unsigned long nr_pages)
+@@ -7378,8 +7483,7 @@ void free_contig_range(unsigned long pfn, unsigned long nr_pages)
  	if (WARN_ON_ONCE(PageHead(pfn_to_page(pfn))))
  		return;
  
@@ -1022,10 +1022,10 @@ index 87259e309dee3b..cdf95a9f0b87c1 100644
  				unsigned long nr_pages,
  				struct page **page_array);
 diff --git a/mm/page_alloc.c b/mm/page_alloc.c
-index fc3f1456f3839d..7db4b2fd1fc53b 100644
+index 1ad431968a3481..388628c30711b9 100644
 --- a/mm/page_alloc.c
 +++ b/mm/page_alloc.c
-@@ -5214,6 +5214,34 @@ unsigned long alloc_pages_bulk_noprof(gfp_t gfp, int preferred_nid,
+@@ -5222,6 +5222,34 @@ unsigned long alloc_pages_bulk_noprof(gfp_t gfp, int preferred_nid,
  }
  EXPORT_SYMBOL_GPL(alloc_pages_bulk_noprof);
  
@@ -1061,7 +1061,7 @@ index fc3f1456f3839d..7db4b2fd1fc53b 100644
   * This is the 'heart' of the zoned buddy allocator.
   */
 diff --git a/mm/vmalloc.c b/mm/vmalloc.c
-index 61caa55a44027b..f42588fc7cff56 100644
+index 2c2f74a07f3963..cef6a5120cde85 100644
 --- a/mm/vmalloc.c
 +++ b/mm/vmalloc.c
 @@ -3442,7 +3442,6 @@ void vfree_atomic(const void *addr)
@@ -1179,84 +1179,18 @@ index 09de584e4c8fa9..eaf69e344f3a45 100644
  
  static void init_amd(struct cpuinfo_x86 *c)
 
-diff --git a/kernel/time/clockevents.c b/kernel/time/clockevents.c
-index 38570998a19b8c..7f5474bcb40f09 100644
---- a/kernel/time/clockevents.c
-+++ b/kernel/time/clockevents.c
-@@ -94,6 +94,9 @@ static int __clockevents_switch_state(struct clock_event_device *dev,
- 	if (dev->features & CLOCK_EVT_FEAT_DUMMY)
- 		return 0;
+diff --git a/io_uring/zcrx.c b/io_uring/zcrx.c
+index af4b88e106abf4..ba509479fc1078 100644
+--- a/io_uring/zcrx.c
++++ b/io_uring/zcrx.c
+@@ -587,6 +587,10 @@ static void io_zcrx_return_niov_freelist(struct net_iov *niov)
+ 	struct io_zcrx_area *area = io_zcrx_iov_to_area(niov);
  
-+	/* On state transitions clear the forced flag unconditionally */
-+	dev->next_event_forced = 0;
-+
- 	/* Transition with new state-specific callbacks */
- 	switch (state) {
- 	case CLOCK_EVT_STATE_DETACHED:
-@@ -332,8 +335,10 @@ int clockevents_program_event(struct clock_event_device *dev, ktime_t expires,
- 	if (delta > (int64_t)dev->min_delta_ns) {
- 		delta = min(delta, (int64_t) dev->max_delta_ns);
- 		clc = ((unsigned long long) delta * dev->mult) >> dev->shift;
--		if (!dev->set_next_event((unsigned long) clc, dev))
-+		if (!dev->set_next_event((unsigned long) cycles, dev)) {
-+			dev->next_event_forced = 0;
- 			return 0;
-+		}
- 	}
- 
- 	if (dev->next_event_forced)
-diff --git a/kernel/time/tick-broadcast.c b/kernel/time/tick-broadcast.c
-index 7e57fa31ee26f1..115e0bf012764e 100644
---- a/kernel/time/tick-broadcast.c
-+++ b/kernel/time/tick-broadcast.c
-@@ -108,6 +108,7 @@ static struct clock_event_device *tick_get_oneshot_wakeup_device(int cpu)
- 
- static void tick_oneshot_wakeup_handler(struct clock_event_device *wd)
- {
-+	wd->next_event_forced = 0;
- 	/*
- 	 * If we woke up early and the tick was reprogrammed in the
- 	 * meantime then this may be spurious but harmless.
-
-diff --git a/kernel/sched/core.c b/kernel/sched/core.c
-index 292efc99839b75..ee5f025b7c31ea 100644
---- a/kernel/sched/core.c
-+++ b/kernel/sched/core.c
-@@ -3627,6 +3627,9 @@ static inline void ttwu_do_wakeup(struct task_struct *p)
- 
- void update_rq_avg_idle(struct rq *rq)
- {
-+	if (!rq->idle_stamp)
+ 	spin_lock_bh(&area->freelist_lock);
++	if (WARN_ON_ONCE(area->free_count >= area->nia.num_niovs)) {
++		spin_unlock_bh(&area->freelist_lock);
 +		return;
-+
- 	u64 delta = rq_clock(rq) - rq->idle_stamp;
- 	u64 max = 2*rq->max_idle_balance_cost;
- 
-diff --git a/kernel/sched/idle.c b/kernel/sched/idle.c
-index a83be0c834ddb5..9ceb7e6224045b 100644
---- a/kernel/sched/idle.c
-+++ b/kernel/sched/idle.c
-@@ -491,6 +491,9 @@ static void set_next_task_idle(struct rq *rq, struct task_struct *next, bool fir
- 	schedstat_inc(rq->sched_goidle);
- 	next->se.exec_start = rq_clock_task(rq);
- 
-+	if (!rq->idle_stamp)
-+		rq->idle_stamp = rq_clock(rq);
-+
- 	/*
- 	 * rq is about to be idle, check if we need to update the
- 	 * lost_idle_time of clock_pelt
-
-diff --git a/kernel/time/clockevents.c b/kernel/time/clockevents.c
-index 7f5474bcb40f09..69379b34bcc923 100644
---- a/kernel/time/clockevents.c
-+++ b/kernel/time/clockevents.c
-@@ -335,7 +335,7 @@ int clockevents_program_event(struct clock_event_device *dev, ktime_t expires,
- 	if (delta > (int64_t)dev->min_delta_ns) {
- 		delta = min(delta, (int64_t) dev->max_delta_ns);
- 		clc = ((unsigned long long) delta * dev->mult) >> dev->shift;
--		if (!dev->set_next_event((unsigned long) cycles, dev)) {
-+		if (!dev->set_next_event((unsigned long) clc, dev)) {
- 			dev->next_event_forced = 0;
- 			return 0;
- 		}
++	}
+ 	area->freelist[area->free_count++] = net_iov_idx(niov);
+ 	spin_unlock_bh(&area->freelist_lock);
+ }
