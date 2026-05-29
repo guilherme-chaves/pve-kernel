@@ -1,3 +1,40 @@
+proxmox-kernel-7.0 (7.0.6-2) trixie; urgency=medium
+
+  * update submodule and patches to Ubuntu-7.0.0-26.26, picking up a net GRO
+    security fix and several AppArmor CVE fixes
+
+ -- Proxmox Support Team <support@proxmox.com>  Fri, 29 May 2026 13:08:27 +0200
+
+proxmox-kernel-7.0 (7.0.6-1) trixie; urgency=medium
+
+  * update submodule and patches to Ubuntu-7.0.0-21.21 based on 7.0.6 with
+    previously released (security) fixes on top.
+
+ -- Proxmox Support Team <support@proxmox.com>  Thu, 28 May 2026 21:43:33 +0200
+
+proxmox-kernel-7.0 (7.0.2-7) trixie; urgency=medium
+
+  * cherry-pick fix for "CIFSwitch" local privilege escalation
+
+ -- Proxmox Support Team <support@proxmox.com>  Thu, 28 May 2026 10:16:52 +0200
+
+proxmox-kernel-7.0 (7.0.2-6) trixie; urgency=medium
+
+  * build: also ship autoload modprobe.d snippet in -signed package
+
+  * zfs: cherry-pick fix for (benign) vmalloc warning
+
+  * fix #7585: backport increased vblank timeout
+
+ -- Proxmox Support Team <support@proxmox.com>  Wed, 20 May 2026 10:55:26 +0200
+
+proxmox-kernel-7.0 (7.0.2-5) trixie; urgency=medium
+
+  * cherry-pick fix for "pintheft"
+  * prevent autoloading of certain network protocols via modprobe.d
+
+ -- Proxmox Support Team <support@proxmox.com>  Tue, 19 May 2026 20:38:34 +0200
+
 proxmox-kernel-7.0 (7.0.2-4) trixie; urgency=medium
 
   * cherry-pick fix for "ssh-keysign-pwn"
