@@ -1108,7 +1108,7 @@ index 7db4b2fd1fc53b..3432864dafc81f 100644
  /**
 
 diff --git a/kernel/sched/ext_idle.c b/kernel/sched/ext_idle.c
-index 44c3a50c542c2a..e332f587ef75b9 100644
+index ba8fcb1ab8b57b..6196b8fb4887b0 100644
 --- a/kernel/sched/ext_idle.c
 +++ b/kernel/sched/ext_idle.c
 @@ -424,18 +424,24 @@ static inline bool task_affinity_all(const struct task_struct *p)
@@ -1193,4 +1193,118 @@ index af4b88e106abf4..ba509479fc1078 100644
 +	}
  	area->freelist[area->free_count++] = net_iov_idx(niov);
  	spin_unlock_bh(&area->freelist_lock);
+ }
+diff --git a/drivers/usb/core/message.c b/drivers/usb/core/message.c
+index 2ab120ce2fa85e..711415e32e1eb4 100644
+--- a/drivers/usb/core/message.c
++++ b/drivers/usb/core/message.c
+@@ -1052,6 +1052,25 @@ int usb_string(struct usb_device *dev, int index, char *buf, size_t size)
+ 			UTF16_LITTLE_ENDIAN, buf, size);
+ 	buf[err] = 0;
+ 
++	/*
++	 * Some devices report string descriptors with a declared length
++	 * greater than the actual serial, leaving uninitialized firmware
++	 * memory (often including C0 control characters) appended to the
++	 * returned string. Truncate at the first control character so
++	 * callers get a clean, well-formed string.
++	 */
++	{
++		int i;
++		for (i = 0; i < err; i++) {
++			unsigned char c = buf[i];
++			if (c < 0x20 || c == 0x7f) {
++				buf[i] = 0;
++				err = i;
++				break;
++			}
++		}
++	}
++
+ 	if (tbuf[1] != USB_DT_STRING)
+ 		dev_dbg(&dev->dev,
+ 			"wrong descriptor type %02x for string %d (\"%s\")\n",
+diff --git a/kernel/sched/core.c b/kernel/sched/core.c
+index 5e05268e5a1562..c9b606ee29fa1a 100644
+--- a/kernel/sched/core.c
++++ b/kernel/sched/core.c
+@@ -3627,6 +3627,9 @@ static inline void ttwu_do_wakeup(struct task_struct *p)
+ 
+ void update_rq_avg_idle(struct rq *rq)
+ {
++	if (!rq->idle_stamp)
++		return;
++
+ 	u64 delta = rq_clock(rq) - rq->idle_stamp;
+ 	u64 max = 2*rq->max_idle_balance_cost;
+ 
+diff --git a/include/linux/sched.h b/include/linux/sched.h
+index 007a0b61856d4c..d41e7a8f9c85f6 100644
+--- a/include/linux/sched.h
++++ b/include/linux/sched.h
+@@ -998,6 +998,9 @@ struct task_struct {
+ 	unsigned			sched_rt_mutex:1;
+ #endif
+ 
++	/* Save user-dumpable when mm goes away */
++	unsigned			user_dumpable:1;
++
+ 	/* Bit to tell TOMOYO we're in execve(): */
+ 	unsigned			in_execve:1;
+ 	unsigned			in_iowait:1;
+diff --git a/kernel/exit.c b/kernel/exit.c
+index 9852444627a0bf..e2b63696125422 100644
+--- a/kernel/exit.c
++++ b/kernel/exit.c
+@@ -571,6 +571,7 @@ static void exit_mm(void)
+ 	 */
+ 	smp_mb__after_spinlock();
+ 	local_irq_disable();
++	current->user_dumpable = (get_dumpable(mm) == SUID_DUMP_USER);
+ 	current->mm = NULL;
+ 	membarrier_update_current_mm(NULL);
+ 	enter_lazy_tlb(mm, current);
+diff --git a/kernel/ptrace.c b/kernel/ptrace.c
+index 392ec2f75f0138..0e3ab697cff5c3 100644
+--- a/kernel/ptrace.c
++++ b/kernel/ptrace.c
+@@ -272,11 +272,24 @@ static bool ptrace_has_cap(struct user_namespace *ns, unsigned int mode)
+ 	return ns_capable(ns, CAP_SYS_PTRACE);
+ }
+ 
++static bool task_still_dumpable(struct task_struct *task, unsigned int mode)
++{
++	struct mm_struct *mm = task->mm;
++	if (mm) {
++		if (get_dumpable(mm) == SUID_DUMP_USER)
++			return true;
++		return ptrace_has_cap(mm->user_ns, mode);
++	}
++
++	if (task->user_dumpable)
++		return true;
++	return ptrace_has_cap(&init_user_ns, mode);
++}
++
+ /* Returns 0 on success, -errno on denial. */
+ static int __ptrace_may_access(struct task_struct *task, unsigned int mode)
+ {
+ 	const struct cred *cred = current_cred(), *tcred;
+-	struct mm_struct *mm;
+ 	kuid_t caller_uid;
+ 	kgid_t caller_gid;
+ 
+@@ -337,11 +350,8 @@ static int __ptrace_may_access(struct task_struct *task, unsigned int mode)
+ 	 * Pairs with a write barrier in commit_creds().
+ 	 */
+ 	smp_rmb();
+-	mm = task->mm;
+-	if (mm &&
+-	    ((get_dumpable(mm) != SUID_DUMP_USER) &&
+-	     !ptrace_has_cap(mm->user_ns, mode)))
+-	    return -EPERM;
++	if (!task_still_dumpable(task, mode))
++		return -EPERM;
+ 
+ 	return security_ptrace_access_check(task, mode);
  }
