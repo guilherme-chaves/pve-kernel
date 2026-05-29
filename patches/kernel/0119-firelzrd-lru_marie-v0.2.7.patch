@@ -9977,7 +9977,7 @@ index 0fc9373e82..cd22ce7646 100644
  #ifdef ARCH_HAS_PREFETCHW
  #define prefetchw_prev_lru_folio(_folio, _base, _field)			\
  	do {								\
-@@ -197,8 +228,19 @@ struct scan_control {
+@@ -197,12 +228,23 @@ struct scan_control {
  
  /*
   * From 0 .. MAX_SWAPPINESS.  Higher means more swappy.
@@ -9992,7 +9992,11 @@ index 0fc9373e82..cd22ce7646 100644
 +#ifdef CONFIG_LRU_MARIE
 +int vm_swappiness = 1;
 +#else
+ #ifdef CONFIG_CACHY
+ int vm_swappiness = 100;
+ #else
  int vm_swappiness = 60;
+ #endif
 +#endif
  
  #ifdef CONFIG_MEMCG
