@@ -3,4 +3,5 @@
 	url = git://git.proxmox.com/git/zfsonlinux.git
 [submodule "submodules/ubuntu-kernel"]
 	path = submodules/ubuntu-kernel
-	url = git://git.proxmox.com/git/mirror_ubuntu-kernels.git
+	url = git://git.launchpad.net/~ubuntu-kernel/ubuntu/+source/linux/+git/resolute
+	branch = master-next
