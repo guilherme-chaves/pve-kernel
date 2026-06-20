@@ -5,7 +5,12 @@
 #export DH_VERBOSE=1
 
 # TODO: check for headers not being installed
+BUILD_TMPFS=0
+ifeq ($(BUILD_TMPFS), 1)
+BUILD_DIR=/tmp/pve-kernel
+else
 BUILD_DIR=$(shell pwd)
+endif
 
 include /usr/share/dpkg/default.mk
 include debian/rules.d/env.mk
