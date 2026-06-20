@@ -33,8 +33,8 @@ KERNEL_SRC_COPY=$(KERNEL_SRC)_tmp
 
 PMX_CONFIG_OPTS = \
 $(shell cat debian/rules.d/config-common.opts) \
-$(shell cat debian/rules.d/config-$(DEB_BUILD_ARCH).opts 2>/dev/null)
-
+$(shell cat debian/rules.d/config-$(DEB_BUILD_ARCH).opts 2>/dev/null) \
+$(shell cat debian/rules.d/config-cachyos.opts 2>/dev/null)
 
 debian/control: $(wildcard debian/*.in)
 	sed -e 's/@@KVNAME@@/$(KVNAME)/g' < debian/proxmox-kernel.prerm.in > debian/$(PMX_KERNEL_PKG).prerm
