@@ -1179,21 +1179,6 @@ index 09de584e4c8fa9..eaf69e344f3a45 100644
  
  static void init_amd(struct cpuinfo_x86 *c)
 
-diff --git a/io_uring/zcrx.c b/io_uring/zcrx.c
-index af4b88e106abf4..ba509479fc1078 100644
---- a/io_uring/zcrx.c
-+++ b/io_uring/zcrx.c
-@@ -587,6 +587,10 @@ static void io_zcrx_return_niov_freelist(struct net_iov *niov)
- 	struct io_zcrx_area *area = io_zcrx_iov_to_area(niov);
- 
- 	spin_lock_bh(&area->freelist_lock);
-+	if (WARN_ON_ONCE(area->free_count >= area->nia.num_niovs)) {
-+		spin_unlock_bh(&area->freelist_lock);
-+		return;
-+	}
- 	area->freelist[area->free_count++] = net_iov_idx(niov);
- 	spin_unlock_bh(&area->freelist_lock);
- }
 diff --git a/drivers/usb/core/message.c b/drivers/usb/core/message.c
 index 2ab120ce2fa85e..711415e32e1eb4 100644
 --- a/drivers/usb/core/message.c
