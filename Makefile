@@ -38,7 +38,14 @@ KERNEL_ARCH = $(KERNEL_ARCH_$(ARCH))
 
 SKIPABI=0
 
+SOURCE_DIR=$(shell pwd)
+
+BUILD_TMPFS=0
+ifeq ($(BUILD_TMPFS), 1)
+BUILD_DIR=/tmp/pve-kernel
+else
 BUILD_DIR=proxmox-kernel-$(KERNEL_VER)
+endif
 
 KERNEL_SRC=ubuntu-kernel
 KERNEL_SRC_SUBMODULE=submodules/$(KERNEL_SRC)
@@ -85,9 +92,9 @@ sbuild: $(DSC)
 	sbuild $(DSC)
 
 $(BUILD_DIR).prepared: $(addsuffix .prepared,$(KERNEL_SRC) $(MODULES) debian)
-	test -f fwlist-previous-$(ARCH) && cp -a fwlist-previous-$(ARCH) $(BUILD_DIR)/ || touch $(BUILD_DIR)/fwlist-previous-$(ARCH)
-	cp -a abi-prev-*-$(ARCH) $(BUILD_DIR)/ 2>/dev/null || true
-	cp -a abi-blacklist $(BUILD_DIR)/
+	test -f fwlist-previous-$(ARCH) && cp -a $(SOURCE_DIR)/fwlist-previous-$(ARCH) $(BUILD_DIR)/ || touch $(BUILD_DIR)/fwlist-previous-$(ARCH)
+	cp -a $(SOURCE_DIR)/abi-prev-*-$(ARCH) $(BUILD_DIR)/ 2>/dev/null || true
+	cp -a $(SOURCE_DIR)/abi-blacklist $(BUILD_DIR)/
 	touch $@
 
 .PHONY: build-dir-fresh
@@ -99,7 +106,7 @@ build-dir-fresh:
 debian.prepared: debian
 	rm -rf $(BUILD_DIR)/debian
 	mkdir -p $(BUILD_DIR)
-	cp -a debian $(BUILD_DIR)/debian
+	cp -a $(SOURCE_DIR)/debian $(BUILD_DIR)/debian
 	echo "git clone git://git.proxmox.com/git/pve-kernel.git\\ngit checkout $(shell git rev-parse HEAD)" \
 	    >$(BUILD_DIR)/debian/SOURCE
 	@$(foreach dir, $(DIRS),echo "$(dir)=$($(dir))" >> $(BUILD_DIR)/debian/rules.d/env.mk;)
@@ -111,13 +118,13 @@ debian.prepared: debian
 $(KERNEL_SRC).prepared: $(KERNEL_SRC_SUBMODULE) | submodule
 	rm -rf $(BUILD_DIR)/$(KERNEL_SRC) $@
 	mkdir -p $(BUILD_DIR)
-	cp -a $(KERNEL_SRC_SUBMODULE) $(BUILD_DIR)/$(KERNEL_SRC)
-	cd $(BUILD_DIR)/$(KERNEL_SRC); python3 debian/scripts/misc/annotations --arch $(ARCH) --export >../../$(KERNEL_CFG_ORG)
-	cp $(KERNEL_CFG_ORG) $(BUILD_DIR)/$(KERNEL_SRC)/.config
+	cp -a $(SOURCE_DIR)/$(KERNEL_SRC_SUBMODULE) $(BUILD_DIR)/$(KERNEL_SRC)
+	cd $(BUILD_DIR)/$(KERNEL_SRC); python3 debian/scripts/misc/annotations --arch $(ARCH) --export >$(SOURCE_DIR)/$(KERNEL_CFG_ORG)
+	cp $(SOURCE_DIR)/$(KERNEL_CFG_ORG) $(BUILD_DIR)/$(KERNEL_SRC)/.config
 	sed -i $(BUILD_DIR)/$(KERNEL_SRC)/Makefile -e 's/^EXTRAVERSION.*$$/EXTRAVERSION=$(EXTRAVERSION)/'
 	rm -rf $(BUILD_DIR)/$(KERNEL_SRC)/debian $(BUILD_DIR)/$(KERNEL_SRC)/debian.master
 	set -e; cd $(BUILD_DIR)/$(KERNEL_SRC); \
-	  for patch in ../../patches/kernel/*.patch; do \
+	  for patch in $(SOURCE_DIR)/patches/kernel/*.patch; do \
 	    echo "applying patch '$$patch'"; \
 	    patch --batch -p1 < "$${patch}"; \
 	  done
@@ -129,7 +136,7 @@ $(MODULES).prepared: $(addsuffix .prepared,$(MODULE_DIRS))
 $(ZFSDIR).prepared: $(ZFSONLINUX_SUBMODULE)
 	rm -rf $(BUILD_DIR)/$(MODULES)/$(ZFSDIR) $(BUILD_DIR)/$(MODULES)/tmp $@
 	mkdir -p $(BUILD_DIR)/$(MODULES)/tmp
-	cp -a $(ZFSONLINUX_SUBMODULE)/* $(BUILD_DIR)/$(MODULES)/tmp
+	cp -a $(SOURCE_DIR)/$(ZFSONLINUX_SUBMODULE)/* $(BUILD_DIR)/$(MODULES)/tmp
 	cd $(BUILD_DIR)/$(MODULES)/tmp; make kernel
 	rm -rf $(BUILD_DIR)/$(MODULES)/tmp
 	touch $(ZFSDIR).prepared
