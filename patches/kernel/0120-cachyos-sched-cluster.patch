@@ -1,0 +1,133 @@
+diff --git a/kernel/sched/fair.c b/kernel/sched/fair.c
+index 3ebec186f98236..e06e74d9ce0ee7 100644
+--- a/kernel/sched/fair.c
++++ b/kernel/sched/fair.c
+@@ -10818,6 +10818,20 @@ static bool update_sd_pick_busiest(struct lb_env *env,
+ 	     sds->local_stat.group_type != group_has_spare))
+ 		return false;
+ 
++	/*
++	 * Candidate sg has no more than one task per CPU and has higher
++	 * per-CPU capacity. Migrating tasks to less capable CPUs may harm
++	 * throughput. Maximize throughput, power/energy consequences are not
++	 * considered.
++	 *
++	 * Systems with SMT are unaffected, as asymmetric capacity is not set
++	 * in such cases.
++	 */
++	if ((env->sd->flags & SD_ASYM_CPUCAPACITY) &&
++	    (sgs->group_type <= group_fully_busy) &&
++	    (capacity_greater(sg->sgc->min_capacity, capacity_of(env->dst_cpu))))
++		return false;
++
+ 	if (sgs->group_type > busiest->group_type)
+ 		return true;
+ 
+@@ -10920,17 +10934,6 @@ static bool update_sd_pick_busiest(struct lb_env *env,
+ 		break;
+ 	}
+ 
+-	/*
+-	 * Candidate sg has no more than one task per CPU and has higher
+-	 * per-CPU capacity. Migrating tasks to less capable CPUs may harm
+-	 * throughput. Maximize throughput, power/energy consequences are not
+-	 * considered.
+-	 */
+-	if ((env->sd->flags & SD_ASYM_CPUCAPACITY) &&
+-	    (sgs->group_type <= group_fully_busy) &&
+-	    (capacity_greater(sg->sgc->min_capacity, capacity_of(env->dst_cpu))))
+-		return false;
+-
+ 	return true;
+ }
+ 
+diff --git a/kernel/sched/fair.c b/kernel/sched/fair.c
+index e06e74d9ce0ee7..dcc02ceb44b5e3 100644
+--- a/kernel/sched/fair.c
++++ b/kernel/sched/fair.c
+@@ -10749,10 +10749,24 @@ static inline void update_sg_lb_stats(struct lb_env *env,
+ 			continue;
+ 
+ 		if (sd_flags & SD_ASYM_CPUCAPACITY) {
+-			/* Check for a misfit task on the cpu */
+-			if (sgs->group_misfit_task_load < rq->misfit_task_load) {
+-				sgs->group_misfit_task_load = rq->misfit_task_load;
++			if (rq->misfit_task_load) {
++				/*
++				 * Always mark the domain overloaded so big CPUs
++				 * can pick up misfit tasks via newly idle
++				 * balance.
++				 */
+ 				*sg_overloaded = 1;
++
++				/*
++				 * Only account misfit load if @dst_cpu can
++				 * help; otherwise, the group may be classified
++				 * as misfit_task and update_sd_pick_busiest()
++				 * will skip it.
++				 */
++				if (capacity_greater(capacity_of(env->dst_cpu),
++						     group->sgc->max_capacity) &&
++				    (sgs->group_misfit_task_load < rq->misfit_task_load))
++					sgs->group_misfit_task_load = rq->misfit_task_load;
+ 			}
+ 		} else if (env->idle && sched_reduced_capacity(rq, env->sd)) {
+ 			/* Check for a task running on a CPU with reduced capacity */
+diff --git a/kernel/sched/fair.c b/kernel/sched/fair.c
+index dcc02ceb44b5e3..d2a4c529f67f6c 100644
+--- a/kernel/sched/fair.c
++++ b/kernel/sched/fair.c
+@@ -11846,8 +11846,14 @@ static struct rq *sched_balance_find_src_rq(struct lb_env *env,
+ 		 * eventually lead to active_balancing high->low capacity.
+ 		 * Higher per-CPU capacity is considered better than balancing
+ 		 * average load.
++		 *
++		 * CONFIG_SCHED_CLUSTER requires balancing load across clusters
++		 * of identical capacity. Use architectural capacity to ignore
++		 * runtime variability.
+ 		 */
+ 		if (env->sd->flags & SD_ASYM_CPUCAPACITY &&
++		    (!static_branch_unlikely(&sched_cluster_active) ||
++		     arch_scale_cpu_capacity(env->dst_cpu) != arch_scale_cpu_capacity(i)) &&
+ 		    !capacity_greater(capacity_of(env->dst_cpu), capacity) &&
+ 		    nr_running == 1)
+ 			continue;
+diff --git a/include/linux/sched/sd_flags.h b/include/linux/sched/sd_flags.h
+index 42839cfa277880..42f74af83b8c6f 100644
+--- a/include/linux/sched/sd_flags.h
++++ b/include/linux/sched/sd_flags.h
+@@ -147,7 +147,8 @@ SD_FLAG(SD_ASYM_PACKING, SDF_NEEDS_GROUPS)
+  * Prefer to place tasks in a sibling domain
+  *
+  * Set up until domains start spanning NUMA nodes. Close to being a SHARED_CHILD
+- * flag, but cleared below domains with SD_ASYM_CPUCAPACITY.
++ * flag, but cleared below domains with SD_ASYM_CPUCAPACITY if the domain does
++ * not have clusters of CPUs sharing cache.
+  *
+  * NEEDS_GROUPS: Load balancing flag.
+  */
+diff --git a/kernel/sched/topology.c b/kernel/sched/topology.c
+index 5847b83d9d552b..a1d048344ea120 100644
+--- a/kernel/sched/topology.c
++++ b/kernel/sched/topology.c
+@@ -1723,8 +1723,18 @@ sd_init(struct sched_domain_topology_level *tl,
+ 	/*
+ 	 * Convert topological properties into behaviour.
+ 	 */
+-	/* Don't attempt to spread across CPUs of different capacities. */
+-	if ((sd->flags & SD_ASYM_CPUCAPACITY) && sd->child)
++	/*
++	 * Don't attempt to spread across CPUs of different capacities.
++	 *
++	 * If the domain has clusters of CPUs sharing L2 cache, keep the flag to
++	 * spread tasks across clusters of identical capacity. Checks in
++	 * update_sd_pick_busiest() prevent task migrations from high- to low-
++	 * capacity CPUs for non-overloaded groups. Migrations to a lower-
++	 * capacity CPU can happen if a higher-capacity group is overloaded and
++	 * a low-capacity cluster has spare capacity.
++	 */
++	if ((sd->flags & SD_ASYM_CPUCAPACITY) && sd->child &&
++	    !(sd->child->flags & SD_CLUSTER))
+ 		sd->child->flags &= ~SD_PREFER_SIBLING;
+ 
+ 	if (sd->flags & SD_SHARE_CPUCAPACITY) {
