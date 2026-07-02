@@ -4,4 +4,3 @@
 [submodule "submodules/ubuntu-kernel"]
 	path = submodules/ubuntu-kernel
 	url = git://git.launchpad.net/~ubuntu-kernel/ubuntu/+source/linux/+git/resolute
-	branch = master-next
