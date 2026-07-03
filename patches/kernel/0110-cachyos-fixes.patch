@@ -1,0 +1,974 @@
+diff --git a/kernel/sched/fair.c b/kernel/sched/fair.c
+index 3ebec186f98236..813897c67ca6b5 100644
+--- a/kernel/sched/fair.c
++++ b/kernel/sched/fair.c
+@@ -12168,12 +12168,15 @@ static int sched_balance_rq(int this_cpu, struct rq *this_rq,
+ 		 * still unbalanced. ld_moved simply stays zero, so it is
+ 		 * correctly treated as an imbalance.
+ 		 */
+-		env.loop_max  = min(sysctl_sched_nr_migrate, busiest->nr_running);
+-
+ more_balance:
+ 		rq_lock_irqsave(busiest, &rf);
+ 		update_rq_clock(busiest);
+ 
++		if (!env.loop_max)
++			env.loop_max  = min(sysctl_sched_nr_migrate, busiest->cfs.h_nr_queued);
++		else
++			env.loop_max  = min(env.loop_max, busiest->cfs.h_nr_queued);
++
+ 		/*
+ 		 * cur_ld_moved - load moved in current iteration
+ 		 * ld_moved     - cumulative load moved across iterations
+diff --git a/drivers/dma-buf/udmabuf.c b/drivers/dma-buf/udmabuf.c
+index 94b8ecb892bb17..5d687860445137 100644
+--- a/drivers/dma-buf/udmabuf.c
++++ b/drivers/dma-buf/udmabuf.c
+@@ -26,10 +26,10 @@ MODULE_PARM_DESC(size_limit_mb, "Max size of a dmabuf, in megabytes. Default is
+ 
+ struct udmabuf {
+ 	pgoff_t pagecount;
+-	struct folio **folios;
++	struct page **pages;
+ 
+ 	/**
+-	 * Unlike folios, pinned_folios is only used for unpin.
++	 * Unlike pages, pinned_folios is only used for unpin.
+ 	 * So, nr_pinned is not the same to pagecount, the pinned_folios
+ 	 * only set each folio which already pinned when udmabuf_create.
+ 	 * Note that, since a folio may be pinned multiple times, each folio
+@@ -41,7 +41,6 @@ struct udmabuf {
+ 
+ 	struct sg_table *sg;
+ 	struct miscdevice *device;
+-	pgoff_t *offsets;
+ };
+ 
+ static vm_fault_t udmabuf_vm_fault(struct vm_fault *vmf)
+@@ -55,8 +54,7 @@ static vm_fault_t udmabuf_vm_fault(struct vm_fault *vmf)
+ 	if (pgoff >= ubuf->pagecount)
+ 		return VM_FAULT_SIGBUS;
+ 
+-	pfn = folio_pfn(ubuf->folios[pgoff]);
+-	pfn += ubuf->offsets[pgoff] >> PAGE_SHIFT;
++	pfn = page_to_pfn(ubuf->pages[pgoff]);
+ 
+ 	ret = vmf_insert_pfn(vma, vmf->address, pfn);
+ 	if (ret & VM_FAULT_ERROR)
+@@ -73,8 +71,7 @@ static vm_fault_t udmabuf_vm_fault(struct vm_fault *vmf)
+ 		if (WARN_ON(pgoff >= ubuf->pagecount))
+ 			break;
+ 
+-		pfn = folio_pfn(ubuf->folios[pgoff]);
+-		pfn += ubuf->offsets[pgoff] >> PAGE_SHIFT;
++		pfn = page_to_pfn(ubuf->pages[pgoff]);
+ 
+ 		/**
+ 		 * If the below vmf_insert_pfn() fails, we do not return an
+@@ -109,22 +106,11 @@ static int mmap_udmabuf(struct dma_buf *buf, struct vm_area_struct *vma)
+ static int vmap_udmabuf(struct dma_buf *buf, struct iosys_map *map)
+ {
+ 	struct udmabuf *ubuf = buf->priv;
+-	struct page **pages;
+ 	void *vaddr;
+-	pgoff_t pg;
+ 
+ 	dma_resv_assert_held(buf->resv);
+ 
+-	pages = kvmalloc_objs(*pages, ubuf->pagecount);
+-	if (!pages)
+-		return -ENOMEM;
+-
+-	for (pg = 0; pg < ubuf->pagecount; pg++)
+-		pages[pg] = folio_page(ubuf->folios[pg],
+-				       ubuf->offsets[pg] >> PAGE_SHIFT);
+-
+-	vaddr = vm_map_ram(pages, ubuf->pagecount, -1);
+-	kvfree(pages);
++	vaddr = vm_map_ram(ubuf->pages, ubuf->pagecount, -1);
+ 	if (!vaddr)
+ 		return -EINVAL;
+ 
+@@ -146,22 +132,18 @@ static struct sg_table *get_sg_table(struct device *dev, struct dma_buf *buf,
+ {
+ 	struct udmabuf *ubuf = buf->priv;
+ 	struct sg_table *sg;
+-	struct scatterlist *sgl;
+-	unsigned int i = 0;
+ 	int ret;
+ 
+ 	sg = kzalloc_obj(*sg);
+ 	if (!sg)
+ 		return ERR_PTR(-ENOMEM);
+ 
+-	ret = sg_alloc_table(sg, ubuf->pagecount, GFP_KERNEL);
++	ret = sg_alloc_table_from_pages(sg, ubuf->pages, ubuf->pagecount, 0,
++					ubuf->pagecount << PAGE_SHIFT,
++					GFP_KERNEL);
+ 	if (ret < 0)
+ 		goto err_alloc;
+ 
+-	for_each_sg(sg->sgl, sgl, ubuf->pagecount, i)
+-		sg_set_folio(sgl, ubuf->folios[i], PAGE_SIZE,
+-			     ubuf->offsets[i]);
+-
+ 	ret = dma_map_sgtable(dev, sg, direction, 0);
+ 	if (ret < 0)
+ 		goto err_map;
+@@ -207,12 +189,8 @@ static void unpin_all_folios(struct udmabuf *ubuf)
+ 
+ static __always_inline int init_udmabuf(struct udmabuf *ubuf, pgoff_t pgcnt)
+ {
+-	ubuf->folios = kvmalloc_objs(*ubuf->folios, pgcnt);
+-	if (!ubuf->folios)
+-		return -ENOMEM;
+-
+-	ubuf->offsets = kvzalloc_objs(*ubuf->offsets, pgcnt);
+-	if (!ubuf->offsets)
++	ubuf->pages = kvmalloc_objs(*ubuf->pages, pgcnt);
++	if (!ubuf->pages)
+ 		return -ENOMEM;
+ 
+ 	ubuf->pinned_folios = kvmalloc_objs(*ubuf->pinned_folios, pgcnt);
+@@ -225,8 +203,7 @@ static __always_inline int init_udmabuf(struct udmabuf *ubuf, pgoff_t pgcnt)
+ static __always_inline void deinit_udmabuf(struct udmabuf *ubuf)
+ {
+ 	unpin_all_folios(ubuf);
+-	kvfree(ubuf->offsets);
+-	kvfree(ubuf->folios);
++	kvfree(ubuf->pages);
+ }
+ 
+ static void release_udmabuf(struct dma_buf *buf)
+@@ -344,8 +321,8 @@ static long udmabuf_pin_folios(struct udmabuf *ubuf, struct file *memfd,
+ 		ubuf->pinned_folios[nr_pinned++] = folios[cur_folio];
+ 
+ 		for (; subpgoff < fsize; subpgoff += PAGE_SIZE) {
+-			ubuf->folios[upgcnt] = folios[cur_folio];
+-			ubuf->offsets[upgcnt] = subpgoff;
++			ubuf->pages[upgcnt] = folio_page(folios[cur_folio],
++						subpgoff >> PAGE_SHIFT);
+ 			++upgcnt;
+ 
+ 			if (++cur_pgcnt >= pgcnt)
+diff --git a/arch/x86/kernel/cpu/amd.c b/arch/x86/kernel/cpu/amd.c
+index 31f01e9c711412..65b759d72bd4a2 100644
+--- a/arch/x86/kernel/cpu/amd.c
++++ b/arch/x86/kernel/cpu/amd.c
+@@ -1039,11 +1039,8 @@ static const struct x86_cpu_id zen5_rdseed_microcode[] = {
+ 
+ static void init_amd_zen5(struct cpuinfo_x86 *c)
+ {
+-	if (!x86_match_min_microcode_rev(zen5_rdseed_microcode)) {
+-		clear_cpu_cap(c, X86_FEATURE_RDSEED);
+-		msr_clear_bit(MSR_AMD64_CPUID_FN_7, 18);
+-		pr_emerg_once("RDSEED32 is broken. Disabling the corresponding CPUID bit.\n");
+-	}
++	if (!x86_match_min_microcode_rev(zen5_rdseed_microcode))
++		pr_emerg_once("RDSEED32 is broken. Please update your firmware.\n");
+ }
+ 
+ static void init_amd(struct cpuinfo_x86 *c)
+diff --git a/kernel/sched/core.c b/kernel/sched/core.c
+index b8871449d3c694..9d39baa24ffa9a 100644
+--- a/kernel/sched/core.c
++++ b/kernel/sched/core.c
+@@ -3691,6 +3691,9 @@ static inline void ttwu_do_wakeup(struct task_struct *p)
+ 
+ void update_rq_avg_idle(struct rq *rq)
+ {
++	if (!rq->idle_stamp)
++		return;
++
+ 	u64 delta = rq_clock(rq) - rq->idle_stamp;
+ 	u64 max = 2*rq->max_idle_balance_cost;
+ 
+diff --git a/arch/arm/include/asm/mmu_context.h b/arch/arm/include/asm/mmu_context.h
+index db2cb06aa8cf5e..bebde469f81ae6 100644
+--- a/arch/arm/include/asm/mmu_context.h
++++ b/arch/arm/include/asm/mmu_context.h
+@@ -80,7 +80,7 @@ static inline void check_and_switch_context(struct mm_struct *mm,
+ #ifndef MODULE
+ #define finish_arch_post_lock_switch \
+ 	finish_arch_post_lock_switch
+-static inline void finish_arch_post_lock_switch(void)
++static __always_inline void finish_arch_post_lock_switch(void)
+ {
+ 	struct mm_struct *mm = current->mm;
+ 
+diff --git a/arch/riscv/include/asm/sync_core.h b/arch/riscv/include/asm/sync_core.h
+index 9153016da8f14b..2fe6b7fe6b12d0 100644
+--- a/arch/riscv/include/asm/sync_core.h
++++ b/arch/riscv/include/asm/sync_core.h
+@@ -6,7 +6,7 @@
+  * RISC-V implements return to user-space through an xRET instruction,
+  * which is not core serializing.
+  */
+-static inline void sync_core_before_usermode(void)
++static __always_inline void sync_core_before_usermode(void)
+ {
+ 	asm volatile ("fence.i" ::: "memory");
+ }
+diff --git a/arch/s390/include/asm/mmu_context.h b/arch/s390/include/asm/mmu_context.h
+index bd1ef5e2d2ebf8..95d03be2ce4561 100644
+--- a/arch/s390/include/asm/mmu_context.h
++++ b/arch/s390/include/asm/mmu_context.h
+@@ -93,7 +93,7 @@ static inline void switch_mm(struct mm_struct *prev, struct mm_struct *next,
+ }
+ 
+ #define finish_arch_post_lock_switch finish_arch_post_lock_switch
+-static inline void finish_arch_post_lock_switch(void)
++static __always_inline void finish_arch_post_lock_switch(void)
+ {
+ 	struct task_struct *tsk = current;
+ 	struct mm_struct *mm = tsk->mm;
+diff --git a/arch/sparc/include/asm/mmu_context_64.h b/arch/sparc/include/asm/mmu_context_64.h
+index 78bbacc14d2d9b..d1967214ef25f9 100644
+--- a/arch/sparc/include/asm/mmu_context_64.h
++++ b/arch/sparc/include/asm/mmu_context_64.h
+@@ -160,7 +160,7 @@ static inline void arch_start_context_switch(struct task_struct *prev)
+ }
+ 
+ #define finish_arch_post_lock_switch	finish_arch_post_lock_switch
+-static inline void finish_arch_post_lock_switch(void)
++static __always_inline void finish_arch_post_lock_switch(void)
+ {
+ 	/* Restore the state of MCDPER register for the new process
+ 	 * just switched to.
+diff --git a/arch/x86/include/asm/sync_core.h b/arch/x86/include/asm/sync_core.h
+index 96bda43538ee70..4b55fa353bb5f9 100644
+--- a/arch/x86/include/asm/sync_core.h
++++ b/arch/x86/include/asm/sync_core.h
+@@ -93,7 +93,7 @@ static __always_inline void sync_core(void)
+  * to user-mode. x86 implements return to user-space through sysexit,
+  * sysrel, and sysretq, which are not core serializing.
+  */
+-static inline void sync_core_before_usermode(void)
++static __always_inline void sync_core_before_usermode(void)
+ {
+ 	/* With PTI, we unconditionally serialize before running user code. */
+ 	if (static_cpu_has(X86_FEATURE_PTI))
+diff --git a/include/linux/perf_event.h b/include/linux/perf_event.h
+index 48d851fbd8ea58..7c1dac8da5e59f 100644
+--- a/include/linux/perf_event.h
++++ b/include/linux/perf_event.h
+@@ -1632,7 +1632,7 @@ static inline void perf_event_task_migrate(struct task_struct *task)
+ 		task->sched_migrated = 1;
+ }
+ 
+-static inline void perf_event_task_sched_in(struct task_struct *prev,
++static __always_inline void perf_event_task_sched_in(struct task_struct *prev,
+ 					    struct task_struct *task)
+ {
+ 	if (static_branch_unlikely(&perf_sched_events))
+diff --git a/include/linux/sched/mm.h b/include/linux/sched/mm.h
+index 95d0040df58413..a17730d63f888c 100644
+--- a/include/linux/sched/mm.h
++++ b/include/linux/sched/mm.h
+@@ -32,7 +32,7 @@ extern struct mm_struct *mm_alloc(void);
+  * See also <Documentation/mm/active_mm.rst> for an in-depth explanation
+  * of &mm_struct.mm_count vs &mm_struct.mm_users.
+  */
+-static inline void mmgrab(struct mm_struct *mm)
++static __always_inline void mmgrab(struct mm_struct *mm)
+ {
+ 	atomic_inc(&mm->mm_count);
+ }
+@@ -44,7 +44,7 @@ static inline void smp_mb__after_mmgrab(void)
+ 
+ extern void __mmdrop(struct mm_struct *mm);
+ 
+-static inline void mmdrop(struct mm_struct *mm)
++static __always_inline void mmdrop(struct mm_struct *mm)
+ {
+ 	/*
+ 	 * The implicit full barrier implied by atomic_dec_and_test() is
+@@ -71,27 +71,27 @@ static inline void __mmdrop_delayed(struct rcu_head *rhp)
+  * Invoked from finish_task_switch(). Delegates the heavy lifting on RT
+  * kernels via RCU.
+  */
+-static inline void mmdrop_sched(struct mm_struct *mm)
++static __always_inline void mmdrop_sched(struct mm_struct *mm)
+ {
+ 	/* Provides a full memory barrier. See mmdrop() */
+ 	if (atomic_dec_and_test(&mm->mm_count))
+ 		call_rcu(&mm->delayed_drop, __mmdrop_delayed);
+ }
+ #else
+-static inline void mmdrop_sched(struct mm_struct *mm)
++static __always_inline void mmdrop_sched(struct mm_struct *mm)
+ {
+ 	mmdrop(mm);
+ }
+ #endif
+ 
+ /* Helpers for lazy TLB mm refcounting */
+-static inline void mmgrab_lazy_tlb(struct mm_struct *mm)
++static __always_inline void mmgrab_lazy_tlb(struct mm_struct *mm)
+ {
+ 	if (IS_ENABLED(CONFIG_MMU_LAZY_TLB_REFCOUNT))
+ 		mmgrab(mm);
+ }
+ 
+-static inline void mmdrop_lazy_tlb(struct mm_struct *mm)
++static __always_inline void mmdrop_lazy_tlb(struct mm_struct *mm)
+ {
+ 	if (IS_ENABLED(CONFIG_MMU_LAZY_TLB_REFCOUNT)) {
+ 		mmdrop(mm);
+@@ -104,7 +104,7 @@ static inline void mmdrop_lazy_tlb(struct mm_struct *mm)
+ 	}
+ }
+ 
+-static inline void mmdrop_lazy_tlb_sched(struct mm_struct *mm)
++static __always_inline void mmdrop_lazy_tlb_sched(struct mm_struct *mm)
+ {
+ 	if (IS_ENABLED(CONFIG_MMU_LAZY_TLB_REFCOUNT))
+ 		mmdrop_sched(mm);
+@@ -128,12 +128,12 @@ static inline void mmdrop_lazy_tlb_sched(struct mm_struct *mm)
+  * See also <Documentation/mm/active_mm.rst> for an in-depth explanation
+  * of &mm_struct.mm_count vs &mm_struct.mm_users.
+  */
+-static inline void mmget(struct mm_struct *mm)
++static __always_inline void mmget(struct mm_struct *mm)
+ {
+ 	atomic_inc(&mm->mm_users);
+ }
+ 
+-static inline bool mmget_not_zero(struct mm_struct *mm)
++static __always_inline bool mmget_not_zero(struct mm_struct *mm)
+ {
+ 	return atomic_inc_not_zero(&mm->mm_users);
+ }
+@@ -532,7 +532,7 @@ enum {
+ #include <asm/membarrier.h>
+ #endif
+ 
+-static inline void membarrier_mm_sync_core_before_usermode(struct mm_struct *mm)
++static __always_inline void membarrier_mm_sync_core_before_usermode(struct mm_struct *mm)
+ {
+ 	/*
+ 	 * The atomic_read() below prevents CSE. The following should
+diff --git a/include/linux/tick.h b/include/linux/tick.h
+index 738007d6f577ff..df9934a60fafe2 100644
+--- a/include/linux/tick.h
++++ b/include/linux/tick.h
+@@ -177,7 +177,7 @@ extern cpumask_var_t tick_nohz_full_mask;
+ #ifdef CONFIG_NO_HZ_FULL
+ extern bool tick_nohz_full_running;
+ 
+-static inline bool tick_nohz_full_enabled(void)
++static __always_inline bool tick_nohz_full_enabled(void)
+ {
+ 	if (!context_tracking_enabled())
+ 		return false;
+@@ -301,7 +301,7 @@ static inline void __tick_nohz_task_switch(void) { }
+ static inline void tick_nohz_full_setup(cpumask_var_t cpumask) { }
+ #endif
+ 
+-static inline void tick_nohz_task_switch(void)
++static __always_inline void tick_nohz_task_switch(void)
+ {
+ 	if (tick_nohz_full_enabled())
+ 		__tick_nohz_task_switch();
+diff --git a/include/linux/vtime.h b/include/linux/vtime.h
+index 29dd5b91dd7d66..428464bb81b34f 100644
+--- a/include/linux/vtime.h
++++ b/include/linux/vtime.h
+@@ -67,24 +67,24 @@ static __always_inline void vtime_account_guest_exit(void)
+  * For now vtime state is tied to context tracking. We might want to decouple
+  * those later if necessary.
+  */
+-static inline bool vtime_accounting_enabled(void)
++static __always_inline bool vtime_accounting_enabled(void)
+ {
+ 	return context_tracking_enabled();
+ }
+ 
+-static inline bool vtime_accounting_enabled_cpu(int cpu)
++static __always_inline bool vtime_accounting_enabled_cpu(int cpu)
+ {
+ 	return context_tracking_enabled_cpu(cpu);
+ }
+ 
+-static inline bool vtime_accounting_enabled_this_cpu(void)
++static __always_inline bool vtime_accounting_enabled_this_cpu(void)
+ {
+ 	return context_tracking_enabled_this_cpu();
+ }
+ 
+ extern void vtime_task_switch_generic(struct task_struct *prev);
+ 
+-static inline void vtime_task_switch(struct task_struct *prev)
++static __always_inline void vtime_task_switch(struct task_struct *prev)
+ {
+ 	if (vtime_accounting_enabled_this_cpu())
+ 		vtime_task_switch_generic(prev);
+diff --git a/kernel/sched/core.c b/kernel/sched/core.c
+index 9d39baa24ffa9a..d8273f09c6bc83 100644
+--- a/kernel/sched/core.c
++++ b/kernel/sched/core.c
+@@ -4961,7 +4961,7 @@ static inline void prepare_task(struct task_struct *next)
+ 	WRITE_ONCE(next->on_cpu, 1);
+ }
+ 
+-static inline void finish_task(struct task_struct *prev)
++static __always_inline void finish_task(struct task_struct *prev)
+ {
+ 	/*
+ 	 * This must be the very last reference to @prev from this CPU. After
+@@ -5005,7 +5005,7 @@ static void zap_balance_callbacks(struct rq *rq)
+ 	rq->balance_callback = found ? &balance_push_callback : NULL;
+ }
+ 
+-static void do_balance_callbacks(struct rq *rq, struct balance_callback *head)
++static __always_inline void do_balance_callbacks(struct rq *rq, struct balance_callback *head)
+ {
+ 	void (*func)(struct rq *rq);
+ 	struct balance_callback *next;
+@@ -5040,7 +5040,7 @@ struct balance_callback balance_push_callback = {
+ 	.func = balance_push,
+ };
+ 
+-static inline struct balance_callback *
++static __always_inline struct balance_callback *
+ __splice_balance_callbacks(struct rq *rq, bool split)
+ {
+ 	struct balance_callback *head = rq->balance_callback;
+@@ -5114,7 +5114,7 @@ prepare_lock_switch(struct rq *rq, struct task_struct *next, struct rq_flags *rf
+ 	__acquire(__rq_lockp(this_rq()));
+ }
+ 
+-static inline void finish_lock_switch(struct rq *rq)
++static __always_inline void finish_lock_switch(struct rq *rq)
+ 	__releases(__rq_lockp(rq))
+ {
+ 	/*
+@@ -5148,7 +5148,7 @@ static inline void kmap_local_sched_out(void)
+ #endif
+ }
+ 
+-static inline void kmap_local_sched_in(void)
++static __always_inline void kmap_local_sched_in(void)
+ {
+ #ifdef CONFIG_KMAP_LOCAL
+ 	if (unlikely(current->kmap_ctrl.idx))
+@@ -5202,7 +5202,7 @@ prepare_task_switch(struct rq *rq, struct task_struct *prev,
+  * past. 'prev == current' is still correct but we need to recalculate this_rq
+  * because prev may have moved to another CPU.
+  */
+-static struct rq *finish_task_switch(struct task_struct *prev)
++static __always_inline struct rq *finish_task_switch(struct task_struct *prev)
+ 	__releases(__rq_lockp(this_rq()))
+ {
+ 	struct rq *rq = this_rq();
+diff --git a/kernel/sched/sched.h b/kernel/sched/sched.h
+index 9f63b15d309d11..cc8b83e2556925 100644
+--- a/kernel/sched/sched.h
++++ b/kernel/sched/sched.h
+@@ -1441,12 +1441,12 @@ static inline struct cpumask *sched_group_span(struct sched_group *sg);
+ 
+ DECLARE_STATIC_KEY_FALSE(__sched_core_enabled);
+ 
+-static inline bool sched_core_enabled(struct rq *rq)
++static __always_inline bool sched_core_enabled(struct rq *rq)
+ {
+ 	return static_branch_unlikely(&__sched_core_enabled) && rq->core_enabled;
+ }
+ 
+-static inline bool sched_core_disabled(void)
++static __always_inline bool sched_core_disabled(void)
+ {
+ 	return !static_branch_unlikely(&__sched_core_enabled);
+ }
+@@ -1455,7 +1455,7 @@ static inline bool sched_core_disabled(void)
+  * Be careful with this function; not for general use. The return value isn't
+  * stable unless you actually hold a relevant rq->__lock.
+  */
+-static inline raw_spinlock_t *rq_lockp(struct rq *rq)
++static __always_inline raw_spinlock_t *rq_lockp(struct rq *rq)
+ {
+ 	if (sched_core_enabled(rq))
+ 		return &rq->core->__lock;
+@@ -1463,7 +1463,7 @@ static inline raw_spinlock_t *rq_lockp(struct rq *rq)
+ 	return &rq->__lock;
+ }
+ 
+-static inline raw_spinlock_t *__rq_lockp(struct rq *rq)
++static __always_inline raw_spinlock_t *__rq_lockp(struct rq *rq)
+ 	__returns_ctx_lock(rq_lockp(rq)) /* alias them */
+ {
+ 	if (rq->core_enabled)
+@@ -1558,12 +1558,12 @@ static inline bool sched_core_disabled(void)
+ 	return true;
+ }
+ 
+-static inline raw_spinlock_t *rq_lockp(struct rq *rq)
++static __always_inline raw_spinlock_t *rq_lockp(struct rq *rq)
+ {
+ 	return &rq->__lock;
+ }
+ 
+-static inline raw_spinlock_t *__rq_lockp(struct rq *rq)
++static __always_inline raw_spinlock_t *__rq_lockp(struct rq *rq)
+ 	__returns_ctx_lock(rq_lockp(rq)) /* alias them */
+ {
+ 	return &rq->__lock;
+@@ -1618,33 +1618,33 @@ extern void raw_spin_rq_lock_nested(struct rq *rq, int subclass)
+ extern bool raw_spin_rq_trylock(struct rq *rq)
+ 	__cond_acquires(true, __rq_lockp(rq));
+ 
+-static inline void raw_spin_rq_lock(struct rq *rq)
++static __always_inline void raw_spin_rq_lock(struct rq *rq)
+ 	__acquires(__rq_lockp(rq))
+ {
+ 	raw_spin_rq_lock_nested(rq, 0);
+ }
+ 
+-static inline void raw_spin_rq_unlock(struct rq *rq)
++static __always_inline void raw_spin_rq_unlock(struct rq *rq)
+ 	__releases(__rq_lockp(rq))
+ {
+ 	raw_spin_unlock(rq_lockp(rq));
+ }
+ 
+-static inline void raw_spin_rq_lock_irq(struct rq *rq)
++static __always_inline void raw_spin_rq_lock_irq(struct rq *rq)
+ 	__acquires(__rq_lockp(rq))
+ {
+ 	local_irq_disable();
+ 	raw_spin_rq_lock(rq);
+ }
+ 
+-static inline void raw_spin_rq_unlock_irq(struct rq *rq)
++static __always_inline void raw_spin_rq_unlock_irq(struct rq *rq)
+ 	__releases(__rq_lockp(rq))
+ {
+ 	raw_spin_rq_unlock(rq);
+ 	local_irq_enable();
+ }
+ 
+-static inline unsigned long _raw_spin_rq_lock_irqsave(struct rq *rq)
++static __always_inline unsigned long _raw_spin_rq_lock_irqsave(struct rq *rq)
+ 	__acquires(__rq_lockp(rq))
+ {
+ 	unsigned long flags;
+@@ -1655,7 +1655,7 @@ static inline unsigned long _raw_spin_rq_lock_irqsave(struct rq *rq)
+ 	return flags;
+ }
+ 
+-static inline void raw_spin_rq_unlock_irqrestore(struct rq *rq, unsigned long flags)
++static __always_inline void raw_spin_rq_unlock_irqrestore(struct rq *rq, unsigned long flags)
+ 	__releases(__rq_lockp(rq))
+ {
+ 	raw_spin_rq_unlock(rq);
+diff --git a/mm/swap.c b/mm/swap.c
+index 5cc44f0de98772..2dd84813f4ddec 100644
+--- a/mm/swap.c
++++ b/mm/swap.c
+@@ -160,14 +160,42 @@ static void folio_batch_move_lru(struct folio_batch *fbatch, move_fn_t move_fn)
+ 	int i;
+ 	struct lruvec *lruvec = NULL;
+ 	unsigned long flags = 0;
++	struct folio_batch free_fbatch;
++	bool is_lru_add = (move_fn == lru_add);
++
++	/*
++	 * If we're adding to the LRU, preemptively filter dead folios. Use
++	 * this dedicated folio batch for temp storage and deferred cleanup.
++	 */
++	if (is_lru_add)
++		folio_batch_init(&free_fbatch);
+ 
+ 	for (i = 0; i < folio_batch_count(fbatch); i++) {
+ 		struct folio *folio = fbatch->folios[i];
+ 
+ 		/* block memcg migration while the folio moves between lru */
+-		if (move_fn != lru_add && !folio_test_clear_lru(folio))
++		if (!is_lru_add && !folio_test_clear_lru(folio))
+ 			continue;
+ 
++		/*
++		 * Filter dead folios by moving them from the add batch to the temp
++		 * batch for freeing after this loop.
++		 *
++		 * We're bypassing normal cleanup. Clear flags that are not
++		 * applicable to dead folios.
++		 *
++		 * Since the folio may be part of a huge page, unqueue from
++		 * deferred split list to avoid a dangling list entry.
++		 */
++		if (is_lru_add && folio_ref_freeze(folio, 1)) {
++			__folio_clear_active(folio);
++			__folio_clear_unevictable(folio);
++			folio_unqueue_deferred_split(folio);
++			fbatch->folios[i] = NULL;
++			folio_batch_add(&free_fbatch, folio);
++			continue;
++		}
++
+ 		folio_lruvec_relock_irqsave(folio, &lruvec, &flags);
+ 		move_fn(lruvec, folio);
+ 
+@@ -176,6 +204,13 @@ static void folio_batch_move_lru(struct folio_batch *fbatch, move_fn_t move_fn)
+ 
+ 	if (lruvec)
+ 		lruvec_unlock_irqrestore(lruvec, flags);
++
++	/* Cleanup filtered dead folios. */
++	if (is_lru_add) {
++		mem_cgroup_uncharge_folios(&free_fbatch);
++		free_unref_folios(&free_fbatch);
++	}
++
+ 	folios_put(fbatch);
+ }
+ 
+@@ -964,6 +999,10 @@ void folios_put_refs(struct folio_batch *folios, unsigned int *refs)
+ 		struct folio *folio = folios->folios[i];
+ 		unsigned int nr_refs = refs ? refs[i] : 1;
+ 
++		/* Folio batch entry may have been preemptively removed during drain. */
++		if (!folio)
++			continue;
++
+ 		if (is_huge_zero_folio(folio))
+ 			continue;
+ 
+diff --git a/drivers/usb/core/message.c b/drivers/usb/core/message.c
+index 75e2bfd744a984..1d83f8be04f57a 100644
+--- a/drivers/usb/core/message.c
++++ b/drivers/usb/core/message.c
+@@ -1052,6 +1052,25 @@ int usb_string(struct usb_device *dev, int index, char *buf, size_t size)
+ 			UTF16_LITTLE_ENDIAN, buf, size);
+ 	buf[err] = 0;
+ 
++	/*
++	 * Some devices report string descriptors with a declared length
++	 * greater than the actual serial, leaving uninitialized firmware
++	 * memory (often including C0 control characters) appended to the
++	 * returned string. Truncate at the first control character so
++	 * callers get a clean, well-formed string.
++	 */
++	{
++		int i;
++		for (i = 0; i < err; i++) {
++			unsigned char c = buf[i];
++			if (c < 0x20 || c == 0x7f) {
++				buf[i] = 0;
++				err = i;
++				break;
++			}
++		}
++	}
++
+ 	if (tbuf[1] != USB_DT_STRING)
+ 		dev_dbg(&dev->dev,
+ 			"wrong descriptor type %02x for string %d (\"%s\")\n",
+diff --git a/kernel/sched/membarrier.c b/kernel/sched/membarrier.c
+index 226a6329f3e928..b446b16ed3b278 100644
+--- a/kernel/sched/membarrier.c
++++ b/kernel/sched/membarrier.c
+@@ -164,8 +164,26 @@
+ 	| MEMBARRIER_PRIVATE_EXPEDITED_RSEQ_BITMASK			\
+ 	| MEMBARRIER_CMD_GET_REGISTRATIONS)
+ 
++/*
++ * Scoped guard for memory barriers on entry and exit.
++ * Matches memory barriers before & after rq->curr modification in scheduler.
++ */
++DEFINE_LOCK_GUARD_0(mb, smp_mb(), smp_mb())
+ static DEFINE_MUTEX(membarrier_ipi_mutex);
++static DEFINE_PER_CPU(struct mutex, membarrier_cpu_mutexes);
++
+ #define SERIALIZE_IPI() guard(mutex)(&membarrier_ipi_mutex)
++#define SERIALIZE_IPI_CPU(cpu_id) guard(mutex)(&per_cpu(membarrier_cpu_mutexes, cpu_id))
++
++static int __init membarrier_init(void)
++{
++	int i;
++
++	for_each_possible_cpu(i)
++		mutex_init(&per_cpu(membarrier_cpu_mutexes, i));
++	return 0;
++}
++core_initcall(membarrier_init);
+ 
+ static void ipi_mb(void *info)
+ {
+@@ -324,7 +342,6 @@ static int membarrier_global_expedited(void)
+ 
+ static int membarrier_private_expedited(int flags, int cpu_id)
+ {
+-	cpumask_var_t tmpmask;
+ 	struct mm_struct *mm = current->mm;
+ 	smp_call_func_t ipi_func = ipi_mb;
+ 
+@@ -361,30 +378,45 @@ static int membarrier_private_expedited(int flags, int cpu_id)
+ 	 * On RISC-V, this barrier pairing is also needed for the
+ 	 * SYNC_CORE command when switching between processes, cf.
+ 	 * the inline comments in membarrier_arch_switch_mm().
++	 *
++	 * Memory barrier on the caller thread _after_ we finished
++	 * waiting for the last IPI. Matches memory barriers before
++	 * rq->curr modification in scheduler.
+ 	 */
+-	smp_mb();	/* system call entry is not a mb. */
+-
+-	if (cpu_id < 0 && !zalloc_cpumask_var(&tmpmask, GFP_KERNEL))
+-		return -ENOMEM;
+-
+-	SERIALIZE_IPI();
+-	cpus_read_lock();
+-
++	guard(mb)();
+ 	if (cpu_id >= 0) {
++		if (cpu_id >= nr_cpu_ids || !cpu_possible(cpu_id))
++			return 0;
++
++		SERIALIZE_IPI_CPU(cpu_id);
++		guard(cpus_read_lock)();
+ 		struct task_struct *p;
+ 
+-		if (cpu_id >= nr_cpu_ids || !cpu_online(cpu_id))
+-			goto out;
++		if (!cpu_online(cpu_id))
++			return 0;
++
+ 		rcu_read_lock();
+ 		p = rcu_dereference(cpu_rq(cpu_id)->curr);
+ 		if (!p || p->mm != mm) {
+ 			rcu_read_unlock();
+-			goto out;
++			return 0;
+ 		}
+ 		rcu_read_unlock();
++		/*
++		 * smp_call_function_single() will call ipi_func() if cpu_id
++		 * is the calling CPU.
++		 */
++		smp_call_function_single(cpu_id, ipi_func, NULL, 1);
+ 	} else {
++		cpumask_var_t __free(free_cpumask_var) tmpmask = CPUMASK_VAR_NULL;
+ 		int cpu;
+ 
++		if (!zalloc_cpumask_var(&tmpmask, GFP_KERNEL))
++			return -ENOMEM;
++
++		SERIALIZE_IPI();
++		guard(cpus_read_lock)();
++
+ 		rcu_read_lock();
+ 		for_each_online_cpu(cpu) {
+ 			struct task_struct *p;
+@@ -394,15 +426,6 @@ static int membarrier_private_expedited(int flags, int cpu_id)
+ 				__cpumask_set_cpu(cpu, tmpmask);
+ 		}
+ 		rcu_read_unlock();
+-	}
+-
+-	if (cpu_id >= 0) {
+-		/*
+-		 * smp_call_function_single() will call ipi_func() if cpu_id
+-		 * is the calling CPU.
+-		 */
+-		smp_call_function_single(cpu_id, ipi_func, NULL, 1);
+-	} else {
+ 		/*
+ 		 * For regular membarrier, we can save a few cycles by
+ 		 * skipping the current cpu -- we're about to do smp_mb()
+@@ -429,18 +452,6 @@ static int membarrier_private_expedited(int flags, int cpu_id)
+ 		}
+ 	}
+ 
+-out:
+-	if (cpu_id < 0)
+-		free_cpumask_var(tmpmask);
+-	cpus_read_unlock();
+-
+-	/*
+-	 * Memory barrier on the caller thread _after_ we finished
+-	 * waiting for the last IPI. Matches memory barriers before
+-	 * rq->curr modification in scheduler.
+-	 */
+-	smp_mb();	/* exit from system call is not a mb */
+-
+ 	return 0;
+ }
+ 
+diff --git a/kernel/sched/membarrier.c b/kernel/sched/membarrier.c
+index b446b16ed3b278..cb957b8f1946a4 100644
+--- a/kernel/sched/membarrier.c
++++ b/kernel/sched/membarrier.c
+@@ -276,23 +276,19 @@ void membarrier_update_current_mm(struct mm_struct *next_mm)
+ 
+ static int membarrier_global_expedited(void)
+ {
++	cpumask_var_t __free(free_cpumask_var) tmpmask = CPUMASK_VAR_NULL;
+ 	int cpu;
+-	cpumask_var_t tmpmask;
+ 
+ 	if (num_online_cpus() == 1)
+ 		return 0;
+ 
+-	/*
+-	 * Matches memory barriers after rq->curr modification in
+-	 * scheduler.
+-	 */
+-	smp_mb();	/* system call entry is not a mb. */
+-
+ 	if (!zalloc_cpumask_var(&tmpmask, GFP_KERNEL))
+ 		return -ENOMEM;
+ 
++	guard(mb)();
+ 	SERIALIZE_IPI();
+-	cpus_read_lock();
++	guard(cpus_read_lock)();
++
+ 	rcu_read_lock();
+ 	for_each_online_cpu(cpu) {
+ 		struct task_struct *p;
+@@ -328,15 +324,6 @@ static int membarrier_global_expedited(void)
+ 	smp_call_function_many(tmpmask, ipi_mb, NULL, 1);
+ 	preempt_enable();
+ 
+-	free_cpumask_var(tmpmask);
+-	cpus_read_unlock();
+-
+-	/*
+-	 * Memory barrier on the caller thread _after_ we finished
+-	 * waiting for the last IPI. Matches memory barriers before
+-	 * rq->curr modification in scheduler.
+-	 */
+-	smp_mb();	/* exit from system call is not a mb */
+ 	return 0;
+ }
+ 
+diff --git a/fs/btrfs/super.c b/fs/btrfs/super.c
+index b26aa9169e8388..64514d600eec71 100644
+--- a/fs/btrfs/super.c
++++ b/fs/btrfs/super.c
+@@ -1873,6 +1873,7 @@ static int btrfs_get_tree_super(struct fs_context *fc)
+ 	fs_info->fs_devices = fs_devices;
+ 	mutex_unlock(&uuid_mutex);
+ 
++	fc->sb_flags |= SB_NOSEC;
+ 
+ 	sb = sget_fc(fc, btrfs_fc_test_super, set_anon_super_fc);
+ 	if (IS_ERR(sb)) {
+diff --git a/drivers/scsi/smartpqi/smartpqi_init.c b/drivers/scsi/smartpqi/smartpqi_init.c
+index 2026ac645d6ab4..5ec583dc2e7df5 100644
+--- a/drivers/scsi/smartpqi/smartpqi_init.c
++++ b/drivers/scsi/smartpqi/smartpqi_init.c
+@@ -2642,7 +2642,7 @@ static int pqi_scan_finished(struct Scsi_Host *shost,
+ {
+ 	struct pqi_ctrl_info *ctrl_info;
+ 
+-	ctrl_info = shost_priv(shost);
++	ctrl_info = shost_to_hba(shost);
+ 
+ 	return !mutex_is_locked(&ctrl_info->scan_mutex);
+ }
+diff --git a/drivers/scsi/scsi_scan.c b/drivers/scsi/scsi_scan.c
+index ef22a4228b8550..b118ed0bf53f81 100644
+--- a/drivers/scsi/scsi_scan.c
++++ b/drivers/scsi/scsi_scan.c
+@@ -1910,7 +1910,7 @@ int scsi_scan_host_selected(struct Scsi_Host *shost, unsigned int channel,
+ 
+ 	return 0;
+ }
+-EXPORT_SYMBOL(scsi_scan_host_selected);
++
+ static void scsi_sysfs_add_devices(struct Scsi_Host *shost)
+ {
+ 	struct scsi_device *sdev;
+diff --git a/drivers/scsi/scsi_transport_sas.c b/drivers/scsi/scsi_transport_sas.c
+index 13412702188e44..d8f2377b017fe4 100644
+--- a/drivers/scsi/scsi_transport_sas.c
++++ b/drivers/scsi/scsi_transport_sas.c
+@@ -40,8 +40,6 @@
+ #include <scsi/scsi_transport_sas.h>
+ 
+ #include "scsi_sas_internal.h"
+-#include "scsi_priv.h"
+-
+ struct sas_host_attrs {
+ 	struct list_head rphy_list;
+ 	struct mutex lock;
+@@ -1685,22 +1683,6 @@ int scsi_is_sas_rphy(const struct device *dev)
+ }
+ EXPORT_SYMBOL(scsi_is_sas_rphy);
+ 
+-static void scan_channel_zero(struct Scsi_Host *shost, uint id, u64 lun)
+-{
+-	struct sas_host_attrs *sas_host = to_sas_host_attrs(shost);
+-	struct sas_rphy *rphy;
+-
+-	list_for_each_entry(rphy, &sas_host->rphy_list, list) {
+-		if (rphy->identify.device_type != SAS_END_DEVICE ||
+-		    rphy->scsi_target_id == -1)
+-			continue;
+-
+-		if (id == SCAN_WILD_CARD || id == rphy->scsi_target_id) {
+-			scsi_scan_target(&rphy->dev, 0, rphy->scsi_target_id,
+-					 lun, SCSI_SCAN_MANUAL);
+-		}
+-	}
+-}
+ 
+ /*
+  * SCSI scan helper
+@@ -1710,41 +1692,23 @@ static int sas_user_scan(struct Scsi_Host *shost, uint channel,
+ 		uint id, u64 lun)
+ {
+ 	struct sas_host_attrs *sas_host = to_sas_host_attrs(shost);
+-	int res = 0;
+-	int i;
+-
+-	switch (channel) {
+-	case 0:
+-		mutex_lock(&sas_host->lock);
+-		scan_channel_zero(shost, id, lun);
+-		mutex_unlock(&sas_host->lock);
+-		break;
+-
+-	case SCAN_WILD_CARD:
+-		mutex_lock(&sas_host->lock);
+-		scan_channel_zero(shost, id, lun);
+-		mutex_unlock(&sas_host->lock);
++	struct sas_rphy *rphy;
+ 
+-		for (i = 1; i <= shost->max_channel; i++) {
+-			res = scsi_scan_host_selected(shost, i, id, lun,
+-						      SCSI_SCAN_MANUAL);
+-			if (res)
+-				goto exit_scan;
+-		}
+-		break;
++	mutex_lock(&sas_host->lock);
++	list_for_each_entry(rphy, &sas_host->rphy_list, list) {
++		if (rphy->identify.device_type != SAS_END_DEVICE ||
++		    rphy->scsi_target_id == -1)
++			continue;
+ 
+-	default:
+-		if (channel <= shost->max_channel) {
+-			res = scsi_scan_host_selected(shost, channel, id, lun,
+-						      SCSI_SCAN_MANUAL);
+-		} else {
+-			res = -EINVAL;
++		if ((channel == SCAN_WILD_CARD || channel == 0) &&
++		    (id == SCAN_WILD_CARD || id == rphy->scsi_target_id)) {
++			scsi_scan_target(&rphy->dev, 0, rphy->scsi_target_id,
++					 lun, SCSI_SCAN_MANUAL);
+ 		}
+-		break;
+ 	}
++	mutex_unlock(&sas_host->lock);
+ 
+-exit_scan:
+-	return res;
++	return 0;
+ }
+ 
+ 
+

@@ -1,0 +1,37 @@
+diff --git a/include/linux/pagemap.h b/include/linux/pagemap.h
+index 31a848485ad9d9..76476bf989febd 100644
+--- a/include/linux/pagemap.h
++++ b/include/linux/pagemap.h
+@@ -1365,7 +1365,7 @@ struct readahead_control {
+ 		._index = i,						\
+ 	}
+ 
+-#define VM_READAHEAD_PAGES	(SZ_128K / PAGE_SIZE)
++#define VM_READAHEAD_PAGES	(SZ_256K / PAGE_SIZE)
+ 
+ void page_cache_ra_unbounded(struct readahead_control *,
+ 		unsigned long nr_to_read, unsigned long lookahead_count);
+diff --git a/mm/swap.c b/mm/swap.c
+index 5cc44f0de98772..bc4452d68cfddd 100644
+--- a/mm/swap.c
++++ b/mm/swap.c
+@@ -1140,17 +1140,8 @@ static const struct ctl_table swap_sysctl_table[] = {
+  */
+ void __init swap_setup(void)
+ {
+-	unsigned long megs = PAGES_TO_MB(totalram_pages());
+-
+-	/* Use a smaller cluster for small-memory machines */
+-	if (megs < 16)
+-		page_cluster = 2;
+-	else
+-		page_cluster = 3;
+-	/*
+-	 * Right now other parts of the system means that we
+-	 * _really_ don't want to cluster much more
+-	 */
++	/* Only swap-in pages requested, avoid readahead */
++	page_cluster = 0;
+ 
+ 	register_sysctl_init("vm", swap_sysctl_table);
+ }

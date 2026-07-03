@@ -1,0 +1,48 @@
+diff --git a/Makefile b/Makefile
+index 5f4fb6e32b59e0..b28ec9e44c59c9 100644
+--- a/Makefile
++++ b/Makefile
+@@ -935,6 +935,11 @@ KBUILD_CFLAGS += -Os
+ KBUILD_RUSTFLAGS += -Copt-level=s
+ endif
+ 
++# Perform swing modulo scheduling immediately before the first scheduling pass.
++# This pass looks at innermost loops and reorders their instructions by
++# overlapping different iterations.
++KBUILD_CFLAGS += $(call cc-option,-fmodulo-sched -fmodulo-sched-allow-regmoves -fivopts)
++
+ # Always set `debug-assertions` and `overflow-checks` because their default
+ # depends on `opt-level` and `debug-assertions`, respectively.
+ KBUILD_RUSTFLAGS += -Cdebug-assertions=$(if $(CONFIG_RUST_DEBUG_ASSERTIONS),y,n)
+diff --git a/Makefile b/Makefile
+index b28ec9e44c59c9..1d29f28f3f4fd2 100644
+--- a/Makefile
++++ b/Makefile
+@@ -939,6 +939,7 @@ endif
+ # This pass looks at innermost loops and reorders their instructions by
+ # overlapping different iterations.
+ KBUILD_CFLAGS += $(call cc-option,-fmodulo-sched -fmodulo-sched-allow-regmoves -fivopts)
++KBUILD_CFLAGS += $(call cc-option,-mllvm -enable-pipeliner)
+ 
+ # Always set `debug-assertions` and `overflow-checks` because their default
+ # depends on `opt-level` and `debug-assertions`, respectively.
+diff --git a/drivers/acpi/processor_idle.c b/drivers/acpi/processor_idle.c
+index a1b35c617a968f..ef93548af24166 100644
+--- a/drivers/acpi/processor_idle.c
++++ b/drivers/acpi/processor_idle.c
+@@ -1418,6 +1418,7 @@ void acpi_processor_power_init(struct acpi_processor *pr)
+ 	if (disabled_by_idle_boot_param())
+ 		return;
+ 
++#ifdef CONFIG_X86
+ 	/*
+ 	 * The bus master check on AMD is observed to be very costly and results
+ 	 * in not only increased power consumption, but also lots of CPU cycles
+@@ -1428,6 +1429,7 @@ void acpi_processor_power_init(struct acpi_processor *pr)
+ 		bm_check_disable = true;
+ 		pr_info("Enabled processor.bm_check_disable for AMD cpuidle\n");
+ 	}
++#endif
+ 
+ 	if (!acpi_processor_get_power_info(pr))
+ 		pr->flags.power_setup_done = 1;

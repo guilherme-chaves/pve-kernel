@@ -1,0 +1,101 @@
+diff --git a/init/Kconfig b/init/Kconfig
+index 2937c4d308aecb..93761b67419b0a 100644
+--- a/init/Kconfig
++++ b/init/Kconfig
+@@ -215,6 +215,10 @@ config THREAD_INFO_IN_TASK
+ 
+ menu "General setup"
+ 
++config CACHY
++	bool "Kernel tweaks by CachyOS"
++	default y
++
+ config BROKEN
+ 	bool
+ 	help
+diff --git a/kernel/Kconfig.hz b/kernel/Kconfig.hz
+index ce1435cb08b1ec..e1359db5561e67 100644
+--- a/kernel/Kconfig.hz
++++ b/kernel/Kconfig.hz
+@@ -40,6 +40,27 @@ choice
+ 	 on SMP and NUMA systems and exactly dividing by both PAL and
+ 	 NTSC frame rates for video and multimedia work.
+ 
++	config HZ_500
++		bool "500 HZ"
++	help
++	 500 Hz is a balanced timer frequency. Provides fast interactivity
++	 on desktops with good smoothness without increasing CPU power
++	 consumption and sacrificing the battery life on laptops.
++
++	config HZ_600
++		bool "600 HZ"
++	help
++	 600 Hz is a balanced timer frequency. Provides fast interactivity
++	 on desktops with good smoothness without increasing CPU power
++	 consumption and sacrificing the battery life on laptops.
++
++	config HZ_750
++		bool "750 HZ"
++	help
++	 750 Hz is a balanced timer frequency. Provides fast interactivity
++	 on desktops with good smoothness without increasing CPU power
++	 consumption and sacrificing the battery life on laptops.
++
+ 	config HZ_1000
+ 		bool "1000 HZ"
+ 	help
+@@ -53,6 +74,9 @@ config HZ
+ 	default 100 if HZ_100
+ 	default 250 if HZ_250
+ 	default 300 if HZ_300
++	default 500 if HZ_500
++	default 600 if HZ_600
++	default 750 if HZ_750
+ 	default 1000 if HZ_1000
+ 
+ config SCHED_HRTICK
+diff --git a/Makefile b/Makefile
+index e27c91ea56fcf8..5f4fb6e32b59e0 100644
+--- a/Makefile
++++ b/Makefile
+@@ -927,6 +927,9 @@ KBUILD_CFLAGS	+= -fno-delete-null-pointer-checks
+ ifdef CONFIG_CC_OPTIMIZE_FOR_PERFORMANCE
+ KBUILD_CFLAGS += -O2
+ KBUILD_RUSTFLAGS += -Copt-level=2
++else ifdef CONFIG_CC_OPTIMIZE_FOR_PERFORMANCE_O3
++KBUILD_CFLAGS += -O3
++KBUILD_RUSTFLAGS += -Copt-level=3
+ else ifdef CONFIG_CC_OPTIMIZE_FOR_SIZE
+ KBUILD_CFLAGS += -Os
+ KBUILD_RUSTFLAGS += -Copt-level=s
+diff --git a/init/Kconfig b/init/Kconfig
+index 93761b67419b0a..ae3dc5f51b50b5 100644
+--- a/init/Kconfig
++++ b/init/Kconfig
+@@ -1606,6 +1606,12 @@ config CC_OPTIMIZE_FOR_PERFORMANCE
+ 	  with the "-O2" compiler flag for best performance and most
+ 	  helpful compile-time warnings.
+ 
++config CC_OPTIMIZE_FOR_PERFORMANCE_O3
++	bool "Optimize more for performance (-O3)"
++	help
++	  Choosing this option will pass "-O3" to your compiler to optimize
++	  the kernel yet more for performance.
++
+ config CC_OPTIMIZE_FOR_SIZE
+ 	bool "Optimize for size (-Os)"
+ 	help
+diff --git a/kernel/Kconfig.preempt b/kernel/Kconfig.preempt
+index 88c594c6d7fcd5..2471a502c52ab5 100644
+--- a/kernel/Kconfig.preempt
++++ b/kernel/Kconfig.preempt
+@@ -91,7 +91,7 @@ endchoice
+ 
+ config PREEMPT_RT
+ 	bool "Fully Preemptible Kernel (Real-Time)"
+-	depends on EXPERT && ARCH_SUPPORTS_RT && !COMPILE_TEST
++	depends on ARCH_SUPPORTS_RT && !COMPILE_TEST
+ 	select PREEMPTION
+ 	help
+ 	  This option turns the kernel into a real-time kernel by replacing
