@@ -20,8 +20,8 @@ index 5de25e89eeb9fd61477b57ce6e12e46600a5e69c..910d1a5f91101dc0266a52a459fd593b
  EXPORT_SYMBOL_FOR_KVM_INTERNAL(halt_poll_ns);
  
  /* Default doubles per-vcpu halt_poll_ns. */
--unsigned int halt_poll_ns_grow = 2;
-+unsigned int halt_poll_ns_grow = 0;
+-unsigned int __read_mostly halt_poll_ns_grow = 2;
++unsigned int __read_mostly halt_poll_ns_grow = 0;
  module_param(halt_poll_ns_grow, uint, 0644);
  EXPORT_SYMBOL_FOR_KVM_INTERNAL(halt_poll_ns_grow);
  

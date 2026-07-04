@@ -12,8 +12,8 @@ diff -uarp a/arch/x86/Makefile b/arch/x86/Makefile
  
  # How to compile the 16-bit code.  Note we always compile for -march=i386;
  # that way we can complain to the user if the CPU is insufficient.
--REALMODE_CFLAGS	:= -std=gnu11 -fms-extensions -m16 -g -Os \
-+REALMODE_CFLAGS	:= -std=gnu17 -fms-extensions -m16 -Os \
+-REALMODE_CFLAGS	:= $(CC_FLAGS_DIALECT) -m16 -g -Os \
++REALMODE_CFLAGS	:= $(CC_FLAGS_DIALECT) -std=gnu17 -fms-extensions -m16 -Os \
  		   -DDISABLE_BRANCH_PROFILING -D__DISABLE_EXPORTS \
  		   -Wall -Wstrict-prototypes -march=i386 -mregparm=3 \
  		   -fno-strict-aliasing -fomit-frame-pointer -fno-pic \
@@ -24,8 +24,8 @@ diff -uarp a/arch/x86/boot/compressed/Makefile b/arch/x86/boot/compressed/Makefi
  # avoid errors with '-march=i386', and future flags may depend on the target to
  # be valid.
  KBUILD_CFLAGS := -m$(BITS) -O2 $(CLANG_FLAGS)
--KBUILD_CFLAGS += -std=gnu11 -fms-extensions
-+KBUILD_CFLAGS += -std=gnu17 -fms-extensions
+-KBUILD_CFLAGS += $(CC_FLAGS_DIALECT)
++KBUILD_CFLAGS += $(CC_FLAGS_DIALECT) -std=gnu17 -fms-extensions
  KBUILD_CFLAGS += -fno-strict-aliasing -fPIE
  KBUILD_CFLAGS += -Wundef
  KBUILD_CFLAGS += -DDISABLE_BRANCH_PROFILING
@@ -36,8 +36,8 @@ diff -uarp a/drivers/firmware/efi/libstub/Makefile b/drivers/firmware/efi/libstu
  
  cflags-$(CONFIG_X86_32)		:= -march=i386
  cflags-$(CONFIG_X86_64)		:= -mcmodel=small
--cflags-$(CONFIG_X86)		+= -m$(BITS) -D__KERNEL__ -std=gnu11 -fms-extensions \
-+cflags-$(CONFIG_X86)		+= -m$(BITS) -D__KERNEL__ -std=gnu17 -fms-extensions \
+-cflags-$(CONFIG_X86)		+= -m$(BITS) -D__KERNEL__ $(CC_FLAGS_DIALECT) \
++cflags-$(CONFIG_X86)		+= -m$(BITS) -D__KERNEL__ $(CC_FLAGS_DIALECT) -std=gnu17 -fms-extensions \
  				   -fPIC -fno-strict-aliasing -mno-red-zone \
  				   -mno-mmx -mno-sse -fshort-wchar \
  				   -Wno-pointer-sign \
@@ -53,11 +53,10 @@ diff -uarp a/Makefile b/Makefile
  KBUILD_USERCFLAGS  := $(KBUILD_USERHOSTCFLAGS) $(USERCFLAGS)
  KBUILD_USERLDFLAGS := $(USERLDFLAGS)
  
-@@ -591,7 +591,7 @@ LINUXINCLUDE    := \
+@@ -591,6 +591,7 @@ LINUXINCLUDE    := \
  KBUILD_AFLAGS   := -D__ASSEMBLY__ -fno-PIE
  
  KBUILD_CFLAGS :=
--KBUILD_CFLAGS += -std=gnu11
 +KBUILD_CFLAGS += -std=gnu17
  KBUILD_CFLAGS += -fshort-wchar
  KBUILD_CFLAGS += -funsigned-char

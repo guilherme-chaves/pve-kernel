@@ -1,3 +1,9 @@
+proxmox-kernel-7.1 (7.1.0-1-cachyos-server-1) trixie; urgency=medium
+
+  * update kernel and patches to version 7.1
+
+ -- Proxmox Support Team <support@proxmox.com>  Wed, 04 Jul 2026 15:50:24 +0200
+
 proxmox-kernel-7.0 (7.0.14-2) trixie; urgency=medium
 
   * update ZFS to 2.4.3.

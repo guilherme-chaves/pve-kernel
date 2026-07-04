@@ -33,8 +33,8 @@ index ceaace3a2f500b01f183612107f9c24b05e4b7f2..cd446f86ce4e9e134ff2cab6cdc9ea64
 +	if (!gmet_enabled || !guest_cpu_cap_has(vcpu, X86_FEATURE_GMET))
 +		to->misc_ctl &= ~SVM_MISC_ENABLE_GMET;
 +
- 	to->iopm_base_pa        = from->iopm_base_pa;
- 	to->msrpm_base_pa       = from->msrpm_base_pa;
+ 	to->iopm_base_pa        = from->iopm_base_pa & PAGE_MASK;
+ 	to->msrpm_base_pa       = from->msrpm_base_pa & PAGE_MASK;
  	to->tsc_offset          = from->tsc_offset;
 @@ -851,6 +854,7 @@ static void nested_vmcb02_prepare_control(struct vcpu_svm *svm)
  	/* Use vmcb01 MMU and format if guest does not use nNPT */
