@@ -419,3 +419,52 @@ index fb5980a194b4f0..8fa3099f563ae9 100644
  		preempt_schedule_common();
  		return 1;
  	}
+diff --git a/include/linux/wait.h b/include/linux/wait.h
+index 87b75e452c46ae..dce055e6add390 100644
+--- a/include/linux/wait.h
++++ b/include/linux/wait.h
+@@ -1224,7 +1224,6 @@ do {										\
+  */
+ void prepare_to_wait(struct wait_queue_head *wq_head, struct wait_queue_entry *wq_entry, int state);
+ bool prepare_to_wait_exclusive(struct wait_queue_head *wq_head, struct wait_queue_entry *wq_entry, int state);
+-void prepare_to_wait_exclusive_lifo(struct wait_queue_head *wq_head, struct wait_queue_entry *wq_entry, int state);
+ long prepare_to_wait_event(struct wait_queue_head *wq_head, struct wait_queue_entry *wq_entry, int state);
+ void finish_wait(struct wait_queue_head *wq_head, struct wait_queue_entry *wq_entry);
+ long wait_woken(struct wait_queue_entry *wq_entry, unsigned mode, long timeout);
+diff --git a/kernel/sched/wait.c b/kernel/sched/wait.c
+index 088ad272f1d0b2..20f27e2cf7aec6 100644
+--- a/kernel/sched/wait.c
++++ b/kernel/sched/wait.c
+@@ -277,19 +277,6 @@ prepare_to_wait_exclusive(struct wait_queue_head *wq_head, struct wait_queue_ent
+ }
+ EXPORT_SYMBOL(prepare_to_wait_exclusive);
+ 
+-void prepare_to_wait_exclusive_lifo(struct wait_queue_head *wq_head, struct wait_queue_entry *wq_entry, int state)
+-{
+-	unsigned long flags;
+-
+-	wq_entry->flags |= WQ_FLAG_EXCLUSIVE;
+-	spin_lock_irqsave(&wq_head->lock, flags);
+-	if (list_empty(&wq_entry->entry))
+-		__add_wait_queue(wq_head, wq_entry);
+-	set_current_state(state);
+-	spin_unlock_irqrestore(&wq_head->lock, flags);
+-}
+-EXPORT_SYMBOL(prepare_to_wait_exclusive_lifo);
+-
+ void init_wait_entry(struct wait_queue_entry *wq_entry, int flags)
+ {
+ 	wq_entry->flags = flags;
+diff --git a/net/ipv4/inet_connection_sock.c b/net/ipv4/inet_connection_sock.c
+index ea21c1081bf9de..928654c34156b6 100644
+--- a/net/ipv4/inet_connection_sock.c
++++ b/net/ipv4/inet_connection_sock.c
+@@ -619,7 +619,7 @@ static int inet_csk_wait_for_connect(struct sock *sk, long timeo)
+ 	 * having to remove and re-insert us on the wait queue.
+ 	 */
+ 	for (;;) {
+-		prepare_to_wait_exclusive_lifo(sk_sleep(sk), &wait,
++		prepare_to_wait_exclusive(sk_sleep(sk), &wait,
+ 					  TASK_INTERRUPTIBLE);
+ 		release_sock(sk);
+ 		if (reqsk_queue_empty(&icsk->icsk_accept_queue))

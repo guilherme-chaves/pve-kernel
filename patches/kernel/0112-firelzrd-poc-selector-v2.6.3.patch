@@ -2491,3 +2491,55 @@ index 5847b83d9d552b..b092e020cc326b 100644
  
  			/*
  			 * In presence of higher domains, adjust the
+diff --git a/kernel/sched/poc_selector.c b/kernel/sched/poc_selector.c
+index 5523b32db68fc7..ff18126075b2a7 100644
+--- a/kernel/sched/poc_selector.c
++++ b/kernel/sched/poc_selector.c
+@@ -37,7 +37,7 @@
+ #define SCHED_POC_SELECTOR_AUTHOR   "Masahito Suzuki"
+ #define SCHED_POC_SELECTOR_PROGNAME "Piece-Of-Cake (POC) CPU Selector"
+ 
+-#define SCHED_POC_SELECTOR_VERSION  "2.6.2"
++#define SCHED_POC_SELECTOR_VERSION  "2.6.3"
+ 
+ /**************************************************************
+  * Static keys:
+@@ -824,6 +824,8 @@ static __always_inline u64 poc_smt_sibling_mask(int bit,
+ 		u8 shift = sd_share->poc_smt_shift;
+ 		int sib = (sd_share->poc_primary_mask & (1ULL << bit))
+ 				? bit + shift : bit - shift;
++		if (unlikely(sib < 0 || sib >= 64))
++			return 1ULL << bit;
+ 		return (1ULL << bit) | (1ULL << sib);
+ 	}
+ 
+diff --git a/kernel/sched/sched.h b/kernel/sched/sched.h
+index 62b9060609d5c7..5756aeebeab9d4 100644
+--- a/kernel/sched/sched.h
++++ b/kernel/sched/sched.h
+@@ -2402,15 +2402,21 @@ static __always_inline u64 poc_cpumask_to_u64(const struct cpumask *mask,
+ {
+ 	int base = sd_share->poc_cpu_base;
+ 	int base_word = base >> 6;
++	int shift = sd_share->poc_affinity_shift;
+ 
+-	if (static_branch_likely(&sched_poc_aligned)) {
+-		/* Fast path: no shift needed (base is 64-aligned) */
++	if (likely(shift == 0)) {
++		/*
++		 * Fast path: this LLC's own base is 64-aligned, so no
++		 * cross-word shift is needed here even if some other LLC
++		 * in the system is misaligned (sched_poc_aligned is a
++		 * single system-wide flag and must not gate this branch).
++		 */
+ 		return cpumask_bits(mask)[base_word];
+ 	} else {
+ 		/* Slow path: shift required (e.g., Threadripper) */
+-		int shift = sd_share->poc_affinity_shift;
+ 		u64 lo = cpumask_bits(mask)[base_word];
+-		u64 hi = cpumask_bits(mask)[base_word + 1];
++		u64 hi = (base_word + 1 < BITS_TO_LONGS(nr_cpumask_bits)) ?
++			 cpumask_bits(mask)[base_word + 1] : 0;
+ 		return (lo >> shift) | (hi << (64 - shift));
+ 	}
+ }
