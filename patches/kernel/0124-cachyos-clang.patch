@@ -1,0 +1,96 @@
+From 43f3ac9606e8dd2ff132478045122348dde22576 Mon Sep 17 00:00:00 2001
+From: Eric Naim <dnaim@cachyos.org>
+Date: Mon, 23 Feb 2026 12:22:31 +0800
+Subject: [PATCH] dkms-clang
+
+Signed-off-by: Eric Naim <dnaim@cachyos.org>
+---
+ scripts/Makefile.clang | 2 --
+ scripts/Makefile.warn  | 4 ----
+ 2 files changed, 6 deletions(-)
+
+diff --git a/scripts/Makefile.clang b/scripts/Makefile.clang
+index b67636b28c35..062ee0211c9c 100644
+--- a/scripts/Makefile.clang
++++ b/scripts/Makefile.clang
+@@ -34,9 +34,7 @@ endif
+ # certain optimization flags it knows it has not implemented.
+ # Make it behave more like gcc by erroring when these flags are encountered
+ # so they can be implemented or wrapped in cc-option.
+-CLANG_FLAGS	+= -Werror=unknown-warning-option
+ CLANG_FLAGS	+= -Werror=ignored-optimization-argument
+ CLANG_FLAGS	+= -Werror=option-ignored
+-CLANG_FLAGS	+= -Werror=unused-command-line-argument
+ KBUILD_CPPFLAGS	+= $(CLANG_FLAGS)
+ export CLANG_FLAGS
+diff --git a/scripts/Makefile.warn b/scripts/Makefile.warn
+index 5567da6c7dfe..439a3c126cc4 100644
+--- a/scripts/Makefile.warn
++++ b/scripts/Makefile.warn
+@@ -13,7 +13,6 @@ KBUILD_CFLAGS += -Wundef
+ KBUILD_CFLAGS += -Werror=implicit-function-declaration
+ KBUILD_CFLAGS += -Werror=implicit-int
+ KBUILD_CFLAGS += -Werror=return-type
+-KBUILD_CFLAGS += -Werror=strict-prototypes
+ KBUILD_CFLAGS += -Wno-format-security
+ KBUILD_CFLAGS += -Wno-trigraphs
+ KBUILD_CFLAGS += -Wno-frame-address
+@@ -101,9 +100,6 @@ KBUILD_CFLAGS += $(KBUILD_CFLAGS-y) $(CONFIG_CC_IMPLICIT_FALLTHROUGH)
+ # Prohibit date/time macros, which would make the build non-deterministic
+ KBUILD_CFLAGS += -Werror=date-time
+ 
+-# enforce correct pointer usage
+-KBUILD_CFLAGS += -Werror=incompatible-pointer-types
+-
+ # Require designated initializers for all marked structures
+ KBUILD_CFLAGS += $(call cc-option,-Werror=designated-init)
+ 
+-- 
+2.53.0
+
+diff -uarp a/Makefile b/Makefile
+--- a/Makefile
++++ b/Makefile
+@@ -880,6 +880,17 @@ KBUILD_CFLAGS += $(call cc-option,-fmodu
+ KBUILD_RUSTFLAGS += -Cdebug-assertions=$(if $(CONFIG_RUST_DEBUG_ASSERTIONS),y,n)
+ KBUILD_RUSTFLAGS += -Coverflow-checks=$(if $(CONFIG_RUST_OVERFLOW_CHECKS),y,n)
+ 
++ifdef CONFIG_CC_IS_CLANG
++KBUILD_CFLAGS	+= -fmerge-all-constants \
++          -fomit-frame-pointer \
++		   -mllvm=-enable-pipeliner \
++		   -mllvm=-inline-threshold=1000 \
++		   -mllvm=-unroll-threshold=50
++endif
++ifdef CONFIG_LTO_CLANG
++KBUILD_LDFLAGS	+= --lto-O3 --lto-CGO3 --thinlto-jobs=16
++endif
++
+ # Tell gcc to never replace conditional load with a non-conditional one
+ ifdef CONFIG_CC_IS_GCC
+ # gcc-10 renamed --param=allow-store-data-races=0 to
+-- 
+2.40.2
+
+
+diff -uarp a/ubuntu/igh-ecat/master/Makefile b/ubuntu/igh-ecat/master/Makefile
+--- a/ubuntu/igh-ecat/master/Makefile
++++ b/ubuntu/igh-ecat/master/Makefile 
+@@ -1,5 +1,5 @@
+-ccflags-y := -I$(src)/../ \
+-	-Wmaybe-uninitialized
++ccflags-y := -I$(src)/../ \
++	$(call cc-option,-Wmaybe-uninitialized)
+ 
+ obj-$(CONFIG_IGH_ECAT) += ec_master.o
+
+diff -uarp a/ubuntu/igh-ecat/master/Kbuild.in b/ubuntu/igh-ecat/master/Kbuild.in
+--- a/ubuntu/igh-ecat/master/Kbuild.in
++++ b/ubuntu/igh-ecat/master/Kbuild.in
+@@ -107,6 +107,6 @@ REV := $(shell if test -s $(src)/../revision; then \
+ 
+ CFLAGS_module.o := -DREV=$(REV)
+ 
+-KBUILD_CFLAGS += -Wmaybe-uninitialized
++KBUILD_CFLAGS += $(call cc-option,-Wmaybe-uninitialized)
+ 
