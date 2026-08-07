@@ -1,8 +1,14 @@
+proxmox-kernel-7.1 (7.1.3-8-cachyos-server) trixie; urgency=medium
+
+  * Pick upstream patches for vulnerabilities
+
+ -- Proxmox Support Team <support@proxmox.com>  Fri, 07 Aug 2026 09:45:17 -0300
+
 proxmox-kernel-7.1 (7.1.3-1-cachyos-server-7) trixie; urgency=medium
 
   * Compile the kernel with clang and LTO full
 
- -- Proxmox Support Team <support@proxmox.com>  Wed, 06 Aug 2026 02:24:30 +0200
+ -- Proxmox Support Team <support@proxmox.com>  Thu, 06 Aug 2026 02:24:30 +0200
 
 proxmox-kernel-7.1 (7.1.3-1-cachyos-server-6) trixie; urgency=medium
 
